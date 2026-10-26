@@ -1,6 +1,6 @@
 /** Harness 对齐：上游 OpenAI 兼容 API 配置（全局共用） */
 export interface AgentServerConfig {
-  /** 上游 API 地址，如 https://api.deepseek.com */
+  /** 上游 API 地址，如 https://ai.1k0.com/v1 */
   apiBaseUrl: string;
   /** API Key（Bearer Token） */
   apiKey: string;

@@ -160,7 +160,7 @@ async function pickStorageRoot() {
         <input
           v-model="form.apiBaseUrl"
           type="url"
-          placeholder="https://api.deepseek.com"
+          placeholder="https://ai.1k0.com/v1"
           autocomplete="off"
         />
       </div>

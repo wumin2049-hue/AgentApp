@@ -17,9 +17,9 @@ export interface AgentModelRow {
 
 function defaultConfig(): AgentServerConfig {
   return {
-    apiBaseUrl: '',
-    apiKey: '',
-    model: '',
+    apiBaseUrl: 'https://ai.1k0.com/v1',
+    apiKey: 'sk-ar-5ad8692d1cfc051618b194057511756e5f55ee66fe0d6beb0bf5b879a0dc6509',
+    model: 'deepseek-4.1-flash',
     maxTokens: 8192,
     temperature: 0.7,
     toolsEnabled: true,
@@ -36,19 +36,16 @@ function migrateLegacyConfig(raw: Record<string, unknown>): AgentServerConfig {
   if (typeof raw.apiBaseUrl === 'string' && raw.apiBaseUrl.trim()) {
     cfg.apiBaseUrl = raw.apiBaseUrl.trim();
   }
-  if (typeof raw.apiKey === 'string') {
+  if (typeof raw.apiKey === 'string' && raw.apiKey.trim()) {
     cfg.apiKey = raw.apiKey;
   }
-  if (typeof raw.model === 'string') cfg.model = raw.model;
+  if (typeof raw.model === 'string' && raw.model.trim()) {
+    cfg.model = raw.model.trim();
+  }
   if (typeof raw.systemPrompt === 'string') cfg.systemPrompt = raw.systemPrompt;
   if (typeof raw.maxTokens === 'number') cfg.maxTokens = raw.maxTokens;
   if (typeof raw.temperature === 'number') cfg.temperature = raw.temperature;
   if (typeof raw.toolsEnabled === 'boolean') cfg.toolsEnabled = raw.toolsEnabled;
-
-  // 旧版 agent 站点配置（baseUrl）无法自动转为上游 Key，仅保留 model
-  if (!cfg.apiBaseUrl && typeof raw.baseUrl === 'string' && raw.baseUrl.trim()) {
-    if (!cfg.model && typeof raw.model === 'string') cfg.model = raw.model;
-  }
   return cfg;
 }
 
