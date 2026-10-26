@@ -449,8 +449,8 @@ a.card-clickable {
 
 .chat-input-bar textarea {
   width: 100%;
-  min-height: 88px;
-  max-height: 160px;
+  min-height: 72px;
+  max-height: 140px;
   resize: vertical;
 }
 
@@ -466,6 +466,10 @@ a.card-clickable {
   margin-top: 12px;
 }
 
+.chat-actions--sheet {
+  margin-top: 10px;
+}
+
 .chat-actions .btn {
   flex: 1;
   min-width: 100px;
@@ -476,6 +480,17 @@ a.card-clickable {
 .chat-actions .btn-compact {
   flex: 0 0 auto;
   min-width: auto;
+}
+
+.sheet-section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.slash-hint--sheet {
+  margin-top: 12px;
+  text-align: left;
 }
 
 .reasoning-block {
@@ -1022,4 +1037,111 @@ code.inline {
 .session-del:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.chat-main {
+  padding-bottom: 160px;
+}
+
+.chat-input-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(64px + var(--safe-b));
+  z-index: 45;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 0 16px 10px;
+}
+
+.chat-input-dock .chat-input-wrap {
+  margin-top: 0;
+}
+
+.chat-input-wrap--compact {
+  padding: 10px 12px;
+}
+
+.chat-input-bar textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: manipulation;
+}
+
+.chat-input-bar textarea[readonly] {
+  opacity: 0.75;
+}
+
+.chat-fab {
+  position: fixed;
+  right: max(16px, calc(50% - 240px + 16px));
+  bottom: calc(168px + var(--safe-b));
+  z-index: 46;
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-fab:active {
+  transform: scale(0.96);
+}
+
+.chat-fab-icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(12, 26, 46, 0.38);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  padding-bottom: calc(16px + var(--safe-b));
+}
+
+/* class 的 display:flex 会盖掉 [hidden] 默认 display:none，必须显式关闭 */
+.sheet-overlay[hidden] {
+  display: none !important;
+}
+
+.sheet-panel {
+  width: 100%;
+  max-width: 480px;
+  max-height: min(78vh, 640px);
+  background: var(--surface);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius) var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+  color: var(--text);
+}
+
+.sheet-body {
+  padding: 14px 16px 18px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }

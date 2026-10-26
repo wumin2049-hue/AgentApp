@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjectsStore } from '@/stores/projects';
 import { useAgentSettingsStore } from '@/stores/agentSettings';
@@ -33,6 +33,8 @@ const selectedId = ref('');
 const workRootInput = ref('');
 const topDirs = ref<string[]>([]);
 const sessionBusy = ref(false);
+const projectSheetOpen = ref(false);
+const inputEl = ref<HTMLTextAreaElement | null>(null);
 
 const project = computed(() =>
   projects.projects.find((p) => p.id === selectedId.value) || projects.active,
@@ -40,13 +42,17 @@ const project = computed(() =>
 
 const workRootHint = computed(() => scopeLabel(chat.workRoot));
 
-const canChat = computed(
+/** 发送条件：不用于禁用输入框，避免 WebView 无法聚焦 */
+const canSend = computed(
   () =>
     Boolean(project.value) &&
     agentSettings.hasChatStorageRoot &&
     chat.storageReady &&
-    !busy.value,
+    !busy.value &&
+    !chat.streaming,
 );
+
+const inputLocked = computed(() => busy.value || chat.streaming);
 
 const harnessMemoryHint = computed(() => {
   const d = chat.harnessDigest;
@@ -66,6 +72,31 @@ function formatSessionTime(iso?: string): string {
   const hh = `${d.getHours()}`.padStart(2, '0');
   const mi = `${d.getMinutes()}`.padStart(2, '0');
   return `${mm}-${dd} ${hh}:${mi}`;
+}
+
+function focusChatInput() {
+  requestAnimationFrame(() => {
+    inputEl.value?.focus({ preventScroll: true });
+  });
+}
+
+function openProjectSheet() {
+  projectSheetOpen.value = true;
+  workRootInput.value = chat.workRoot;
+  void loadTopDirs();
+}
+
+function closeProjectSheet() {
+  if (!projectSheetOpen.value) return;
+  projectSheetOpen.value = false;
+  focusChatInput();
+}
+
+function onProjectSheetKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && projectSheetOpen.value) {
+    e.preventDefault();
+    closeProjectSheet();
+  }
 }
 
 async function loadTopDirs() {
@@ -97,14 +128,15 @@ async function applyWorkRoot() {
 
 function useSubdir(dir: string) {
   workRootInput.value = dir;
-  chat.setWorkRoot(dir);
+  void chat.setWorkRoot(dir);
 }
 
 async function onNewSession() {
-  if (!canChat.value || sessionBusy.value) return;
+  if (!canSend.value || sessionBusy.value) return;
   sessionBusy.value = true;
   try {
     await chat.createSession();
+    closeProjectSheet();
   } catch (e) {
     chat.setError(e instanceof Error ? e.message : String(e));
   } finally {
@@ -113,7 +145,7 @@ async function onNewSession() {
 }
 
 async function onSwitchSession(id: string) {
-  if (!canChat.value || sessionBusy.value || id === chat.sessionId) return;
+  if (!canSend.value || sessionBusy.value || id === chat.sessionId) return;
   sessionBusy.value = true;
   try {
     await chat.switchSession(id);
@@ -125,7 +157,7 @@ async function onSwitchSession(id: string) {
 }
 
 async function onDeleteSession(id: string) {
-  if (!canChat.value || sessionBusy.value) return;
+  if (!canSend.value || sessionBusy.value) return;
   if (!window.confirm('删除该会话及其全部消息？此操作不可恢复。')) return;
   sessionBusy.value = true;
   try {
@@ -156,6 +188,13 @@ onMounted(async () => {
     workRootInput.value = chat.workRoot;
   }
   await loadTopDirs();
+  window.addEventListener('keydown', onProjectSheetKeydown);
+  // 延迟聚焦，避免被其它初始化抢焦点
+  focusChatInput();
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onProjectSheetKeydown);
 });
 
 watch(
@@ -176,9 +215,13 @@ watch(
 
 async function send() {
   const text = input.value.trim();
-  if (!text || !project.value || busy.value) return;
+  if (!text || !project.value || busy.value || chat.streaming) return;
   if (!agentSettings.hasChatStorageRoot) {
     chat.setError('请先在「设置」中选择会话数据存储目录');
+    return;
+  }
+  if (!chat.storageReady) {
+    chat.setError('会话存储尚未就绪，请稍候或检查存储目录');
     return;
   }
   if (!agentSettings.isConfigured) {
@@ -248,6 +291,7 @@ async function send() {
     busy.value = false;
     chat.setStreaming(false);
     statusMsg.value = '';
+    focusChatInput();
   }
 }
 
@@ -297,12 +341,14 @@ async function uploadModified() {
 <template>
   <header class="app-header">
     <h1>Agent 对话</h1>
-    <div class="sub" v-if="project && aiStatusLine">工具在本地执行 · {{ aiStatusLine }}</div>
-    <div class="sub" v-else-if="project">工具在本地沙盒执行 · 路径受工作区限制</div>
+    <div class="sub" v-if="project && aiStatusLine">
+      {{ project.name }} · {{ aiStatusLine }}
+    </div>
+    <div class="sub" v-else-if="project">{{ project.name }} · 工具在本地沙盒执行</div>
     <div class="sub text-danger" v-else>请先创建并选择项目</div>
   </header>
 
-  <main class="app-main">
+  <main class="app-main chat-main">
     <div v-if="!agentSettings.hasChatStorageRoot" class="card card-warn">
       <p class="hint-text" style="margin:0">
         会话以目录+文件形式保存。请先在设置里选择<strong>会话数据存储总目录</strong>，否则无法开始对话。
@@ -319,81 +365,6 @@ async function uploadModified() {
       </button>
     </div>
 
-    <div class="card" style="padding:14px">
-      <label class="field-label">当前项目</label>
-      <select
-        class="project-select"
-        :value="selectedId"
-        :disabled="busy || chat.streaming || !projects.projects.length"
-        @change="onProjectChange(($event.target as HTMLSelectElement).value)"
-      >
-        <option v-for="p in projects.projects" :key="p.id" :value="p.id">
-          {{ p.name }}
-        </option>
-      </select>
-
-      <template v-if="project">
-        <p class="ftp-context-hint" style="margin-top:10px">
-          📁 项目根：<strong>{{ project.localRootLabel }}</strong>
-          <span class="scope-tag">沙盒 /</span>
-        </p>
-
-        <div class="field" style="margin-top:12px;margin-bottom:0">
-          <label>AI 工作区（仅允许改此目录下文件）</label>
-          <div class="work-root-row">
-            <input
-              v-model="workRootInput"
-              placeholder="留空 = 整个项目根；或填 src、api 等子目录"
-              :disabled="busy || chat.streaming"
-              @change="applyWorkRoot"
-            />
-            <button
-              class="btn btn-ghost btn-sm"
-              type="button"
-              :disabled="busy || chat.streaming"
-              @click="applyWorkRoot"
-            >
-              应用
-            </button>
-          </div>
-        </div>
-
-        <div v-if="topDirs.length" class="subdir-chips">
-          <button
-            type="button"
-            class="chip"
-            :class="{ active: !chat.workRoot }"
-            @click="useSubdir('')"
-          >
-            项目根 /
-          </button>
-          <button
-            v-for="d in topDirs"
-            :key="d"
-            type="button"
-            class="chip"
-            :class="{ active: chat.workRoot === d }"
-            @click="useSubdir(d)"
-          >
-            {{ d }}/
-          </button>
-        </div>
-
-        <p class="scope-hint">当前工作区：{{ workRootHint }}</p>
-        <p v-if="harnessMemoryHint" class="scope-hint memory-hint">
-          {{ harnessMemoryHint }}
-          <button
-            type="button"
-            class="btn-link"
-            :disabled="busy || chat.streaming"
-            @click="chat.clearHarnessMemory()"
-          >
-            清空记忆
-          </button>
-        </p>
-      </template>
-    </div>
-
     <div v-if="!projects.projects.length" class="card">
       <p class="hint-text">还没有项目，请先在「项目」页创建并绑定手机目录。</p>
     </div>
@@ -404,14 +375,6 @@ async function uploadModified() {
     >
       <div class="session-card-head">
         <span class="card-title" style="margin:0">会话</span>
-        <button
-          class="btn btn-primary btn-sm"
-          type="button"
-          :disabled="!canChat || sessionBusy"
-          @click="onNewSession"
-        >
-          开启新会话
-        </button>
       </div>
       <p class="session-root-hint">
         存储于：{{ agentSettings.chatStorageRoot?.label || '—' }}
@@ -474,37 +437,158 @@ async function uploadModified() {
     </div>
 
     <p v-if="chat.error" class="hint-text err">{{ chat.error }}</p>
-    <p v-if="uploadMsg" class="hint-text ok">{{ uploadMsg }}</p>
-    <p v-if="exportMsg" class="hint-text ok">{{ exportMsg }}</p>
+  </main>
 
-    <div class="chat-input-wrap">
+  <div class="chat-input-dock">
+    <div class="chat-input-wrap chat-input-wrap--compact">
       <div class="chat-input-bar">
         <textarea
+          ref="inputEl"
           v-model="input"
           placeholder="描述要改什么… 或 /img /video 提示词"
-          :disabled="!canChat"
+          :readonly="inputLocked"
+          enterkeyhint="send"
+          autocomplete="off"
+          autocapitalize="sentences"
+          rows="2"
           @keydown.enter.exact.prevent="send"
+          @pointerdown.stop
         />
-        <button class="btn btn-primary" :disabled="!canChat || !input.trim()" @click="send">
+        <button class="btn btn-primary" :disabled="!canSend || !input.trim()" @click="send">
           {{ busy ? '…' : '发送' }}
         </button>
       </div>
-      <p class="slash-hint">斜杠命令：<code>/img</code> <code>/img-async</code> <code>/video</code> <code>/video-quote</code></p>
-      <div class="chat-actions">
-        <button class="btn btn-ghost" :disabled="!project || exportBusy" @click="exportToPhone">
-          {{ exportBusy ? '写回中…' : '写回手机' }}
-        </button>
-        <button class="btn btn-ghost" :disabled="!project || uploadBusy" @click="uploadModified">
-          {{ uploadBusy ? '上传中…' : 'FTP 上传' }}
-        </button>
-        <button
-          class="btn btn-ghost btn-compact"
-          :disabled="busy || chat.streaming || !chat.storageReady"
-          @click="chat.clear()"
+    </div>
+  </div>
+
+  <button
+    type="button"
+    class="chat-fab"
+    title="项目与工作区"
+    aria-label="打开项目设置"
+    @click="openProjectSheet"
+  >
+    <span class="chat-fab-icon">▤</span>
+  </button>
+
+  <div
+    v-if="projectSheetOpen"
+    class="sheet-overlay"
+    @click.self="closeProjectSheet"
+  >
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="项目与工作区">
+      <div class="sheet-header">
+        <strong>项目与工作区</strong>
+        <button type="button" class="btn btn-ghost btn-sm" @click="closeProjectSheet">关闭</button>
+      </div>
+      <div class="sheet-body">
+        <label class="field-label">当前项目</label>
+        <select
+          class="project-select"
+          :value="selectedId"
+          :disabled="busy || chat.streaming || !projects.projects.length"
+          @change="onProjectChange(($event.target as HTMLSelectElement).value)"
         >
-          清空当前会话
-        </button>
+          <option v-for="p in projects.projects" :key="p.id" :value="p.id">
+            {{ p.name }}
+          </option>
+        </select>
+
+        <template v-if="project">
+          <p class="ftp-context-hint" style="margin-top:10px">
+            📁 项目根：<strong>{{ project.localRootLabel }}</strong>
+            <span class="scope-tag">沙盒 /</span>
+          </p>
+
+          <div class="field" style="margin-top:12px;margin-bottom:0">
+            <label>AI 工作区（仅允许改此目录下文件）</label>
+            <div class="work-root-row">
+              <input
+                v-model="workRootInput"
+                placeholder="留空 = 整个项目根；或填 src、api 等子目录"
+                :disabled="busy || chat.streaming"
+                @change="applyWorkRoot"
+              />
+              <button
+                class="btn btn-ghost btn-sm"
+                type="button"
+                :disabled="busy || chat.streaming"
+                @click="applyWorkRoot"
+              >
+                应用
+              </button>
+            </div>
+          </div>
+
+          <div v-if="topDirs.length" class="subdir-chips">
+            <button
+              type="button"
+              class="chip"
+              :class="{ active: !chat.workRoot }"
+              @click="useSubdir('')"
+            >
+              项目根 /
+            </button>
+            <button
+              v-for="d in topDirs"
+              :key="d"
+              type="button"
+              class="chip"
+              :class="{ active: chat.workRoot === d }"
+              @click="useSubdir(d)"
+            >
+              {{ d }}/
+            </button>
+          </div>
+
+          <p class="scope-hint">当前工作区：{{ workRootHint }}</p>
+          <p v-if="harnessMemoryHint" class="scope-hint memory-hint">
+            {{ harnessMemoryHint }}
+            <button
+              type="button"
+              class="btn-link"
+              :disabled="busy || chat.streaming"
+              @click="chat.clearHarnessMemory()"
+            >
+              清空记忆
+            </button>
+          </p>
+        </template>
+        <p v-else class="hint-text" style="margin-top:12px">请先创建项目</p>
+
+        <div class="sheet-section">
+          <label class="field-label">会话操作</label>
+          <button
+            class="btn btn-primary btn-block"
+            type="button"
+            :disabled="!canSend || sessionBusy"
+            @click="onNewSession"
+          >
+            {{ sessionBusy ? '创建中…' : '开启新会话' }}
+          </button>
+          <div class="chat-actions chat-actions--sheet">
+            <button class="btn btn-ghost" type="button" :disabled="!project || exportBusy" @click="exportToPhone">
+              {{ exportBusy ? '写回中…' : '写回手机' }}
+            </button>
+            <button class="btn btn-ghost" type="button" :disabled="!project || uploadBusy" @click="uploadModified">
+              {{ uploadBusy ? '上传中…' : 'FTP 上传' }}
+            </button>
+            <button
+              class="btn btn-ghost btn-compact"
+              type="button"
+              :disabled="busy || chat.streaming || !chat.storageReady"
+              @click="chat.clear()"
+            >
+              清空当前会话
+            </button>
+          </div>
+          <p class="slash-hint slash-hint--sheet">
+            斜杠命令：<code>/img</code> <code>/img-async</code> <code>/video</code> <code>/video-quote</code>
+          </p>
+          <p v-if="uploadMsg" class="hint-text ok" style="margin-top:8px">{{ uploadMsg }}</p>
+          <p v-if="exportMsg" class="hint-text ok" style="margin-top:8px">{{ exportMsg }}</p>
+        </div>
       </div>
     </div>
-  </main>
+  </div>
 </template>

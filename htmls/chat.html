@@ -4,96 +4,105 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="light" />
-  <meta name="theme-color" content="#faf7f2" />
+  <meta name="theme-color" content="#e8f1fc" />
   <title>Agent 对话</title>
   <link rel="stylesheet" href="assets/app.css" />
 </head>
 <body>
   <div class="app-shell">
-    <div class="preview-banner">静态 HTML 预览 · 暖白主题</div>
+    <div class="preview-banner">静态 HTML 预览</div>
 
     <header class="app-header">
       <h1>Agent 对话</h1>
-      <div class="sub">工具在本地沙盒执行 · 路径受工作区限制</div>
+      <div class="sub">官网前端 · 工具在本地沙盒执行</div>
     </header>
 
-    <main class="app-main">
-      <div class="card" style="padding:14px">
-        <label class="field-label">当前项目</label>
-        <select class="project-select">
-          <option selected>官网前端</option>
-          <option>小程序后端</option>
-        </select>
-        <p class="ftp-context-hint" style="margin-top:10px">
-          📁 项目根：<strong>Documents/www</strong>
-          <span class="scope-tag">沙盒 /</span>
-        </p>
-        <div class="field" style="margin-top:12px;margin-bottom:0">
-          <label>AI 工作区（仅允许改此目录下文件）</label>
-          <div class="work-root-row">
-            <input type="text" value="src" placeholder="留空 = 整个项目根" />
-            <button class="btn btn-ghost btn-sm" type="button">应用</button>
-          </div>
+    <main class="app-main chat-main">
+      <div class="card session-card">
+        <div class="session-card-head">
+          <span class="card-title" style="margin:0">会话</span>
         </div>
-        <div class="subdir-chips">
-          <button type="button" class="chip">项目根 /</button>
-          <button type="button" class="chip active">src/</button>
-          <button type="button" class="chip">api/</button>
-        </div>
-        <p class="scope-hint">当前工作区：src/</p>
-        <p class="scope-hint memory-hint">
-          会话工具记忆：已读 3 · 已改 1 · 已搜 2
-          <button type="button" class="btn-link">清空记忆</button>
-        </p>
+        <p class="session-root-hint">存储于：Documents/abs-chats</p>
+        <ul class="session-list">
+          <li class="session-item active">
+            <button type="button" class="session-main">
+              <span class="session-title">改首页标题</span>
+              <span class="session-meta">10-26 14:08 · 4 条</span>
+              <span class="session-preview">把首页 hero 区域的标题改成…</span>
+            </button>
+            <button type="button" class="session-del">删除</button>
+          </li>
+        </ul>
       </div>
 
-      <div class="msg-user">把首页 hero 区域的标题改成「欢迎使用 ABS」</div>
-
-      <div class="msg-assistant">
-        <details class="reasoning-block" open>
-          <summary>思考过程</summary>
-          <pre>需要先读取 index.html 或对应 Vue 组件，定位 hero 标题所在位置，再用 search_replace 局部替换。</pre>
-        </details>
-        <span class="msg-text">已修改首页标题，变更如下：
-
-- src/views/HomeView.vue：hero 标题文案已更新
-- 建议在浏览器刷新后确认样式无错位
-
-如需同步到服务器，可点下方 FTP 上传。</span>
+      <div class="msg-user msg-row">
+        <div class="msg-body">把首页 hero 区域的标题改成「欢迎使用 ABS」</div>
       </div>
 
-      <div class="msg-user">/img 一只在写代码的橘猫，扁平插画风格</div>
-
-      <div class="msg-assistant">
-        <span class="msg-text">图片已生成
-
-</span>
-        <figure class="msg-figure">
-          <img src="https://placehold.co/400x280/f5f1ea/c4694a?text=Generated+Image" alt="图片1" />
-          <figcaption>图片1</figcaption>
-        </figure>
-      </div>
-
-      <div class="tool-card">
-        <span class="card-title">工具轨迹</span>
-        <div class="tool-line ok">✓ 读文件 src/views/HomeView.vue</div>
-        <div class="tool-line ok">✓ 替换 src/views/HomeView.vue</div>
-        <div class="tool-line ok">✓ glob **/*.vue</div>
-      </div>
-
-      <div class="chat-input-wrap">
-        <div class="chat-input-bar">
-          <textarea placeholder="描述要改什么… 或 /img /video 提示词"></textarea>
-          <button class="btn btn-primary" type="button">发送</button>
-        </div>
-        <p class="slash-hint">斜杠命令：<code>/img</code> <code>/img-async</code> <code>/video</code> <code>/video-quote</code></p>
-        <div class="chat-actions">
-          <button class="btn btn-ghost" type="button">写回手机</button>
-          <button class="btn btn-ghost" type="button">FTP 上传</button>
-          <button class="btn btn-ghost btn-compact" type="button">清空对话</button>
+      <div class="msg-assistant msg-row">
+        <div class="msg-body">
+          <span class="msg-text">已修改首页标题，建议刷新后确认样式。</span>
         </div>
       </div>
     </main>
+
+    <div class="chat-input-dock">
+      <div class="chat-input-wrap chat-input-wrap--compact">
+        <div class="chat-input-bar">
+          <textarea rows="2" placeholder="描述要改什么… 或 /img /video 提示词"></textarea>
+          <button class="btn btn-primary" type="button">发送</button>
+        </div>
+      </div>
+    </div>
+
+    <button type="button" class="chat-fab" id="chatFab" title="项目与工作区" aria-label="打开项目设置">
+      <span class="chat-fab-icon">▤</span>
+    </button>
+
+    <div class="sheet-overlay" id="projectSheet" hidden aria-hidden="true">
+      <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="projectSheetTitle">
+        <div class="sheet-header">
+          <strong id="projectSheetTitle">项目与工作区</strong>
+          <button type="button" class="btn btn-ghost btn-sm" id="projectSheetClose" aria-label="关闭项目设置">关闭</button>
+        </div>
+        <div class="sheet-body">
+          <label class="field-label">当前项目</label>
+          <select class="project-select">
+            <option selected>官网前端</option>
+            <option>小程序后端</option>
+          </select>
+          <p class="ftp-context-hint" style="margin-top:10px">
+            📁 项目根：<strong>Documents/www</strong>
+            <span class="scope-tag">沙盒 /</span>
+          </p>
+          <div class="field" style="margin-top:12px;margin-bottom:0">
+            <label>AI 工作区（仅允许改此目录下文件）</label>
+            <div class="work-root-row">
+              <input type="text" value="src" placeholder="留空 = 整个项目根" />
+              <button class="btn btn-ghost btn-sm" type="button">应用</button>
+            </div>
+          </div>
+          <div class="subdir-chips">
+            <button type="button" class="chip">项目根 /</button>
+            <button type="button" class="chip active">src/</button>
+            <button type="button" class="chip">api/</button>
+          </div>
+          <p class="scope-hint">当前工作区：src/</p>
+          <div class="sheet-section">
+            <label class="field-label">会话操作</label>
+            <button class="btn btn-primary btn-block" type="button">开启新会话</button>
+            <div class="chat-actions chat-actions--sheet">
+              <button class="btn btn-ghost" type="button">写回手机</button>
+              <button class="btn btn-ghost" type="button">FTP 上传</button>
+              <button class="btn btn-ghost btn-compact" type="button">清空当前会话</button>
+            </div>
+            <p class="slash-hint slash-hint--sheet">
+              斜杠命令：<code>/img</code> <code>/img-async</code> <code>/video</code> <code>/video-quote</code>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <nav class="tab-bar">
       <a href="index.html"><span class="tab-icon">⌂</span><span>首页</span></a>
@@ -103,5 +112,41 @@
       <a href="settings.html"><span class="tab-icon">⚙</span><span>设置</span></a>
     </nav>
   </div>
+  <script>
+    (function () {
+      var sheet = document.getElementById('projectSheet');
+      var fab = document.getElementById('chatFab');
+      var closeBtn = document.getElementById('projectSheetClose');
+      var input = document.querySelector('.chat-input-bar textarea');
+      if (!sheet || !fab || !closeBtn) return;
+
+      function openSheet() {
+        sheet.hidden = false;
+        sheet.setAttribute('aria-hidden', 'false');
+      }
+      function closeSheet() {
+        sheet.hidden = true;
+        sheet.setAttribute('aria-hidden', 'true');
+        if (input) {
+          requestAnimationFrame(function () {
+            input.focus({ preventScroll: true });
+          });
+        }
+      }
+
+      fab.addEventListener('click', openSheet);
+      closeBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeSheet();
+      });
+      sheet.addEventListener('click', function (e) {
+        if (e.target === sheet) closeSheet();
+      });
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && !sheet.hidden) closeSheet();
+      });
+    })();
+  </script>
 </body>
 </html>
