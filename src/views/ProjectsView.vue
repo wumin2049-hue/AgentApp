@@ -47,7 +47,7 @@ async function create() {
       @click="router.push(`/projects/${p.id}`)"
     >
       <div class="project-item-header">
-        <strong class="project-name" style="font-size:16px">{{ p.name }}</strong>
+        <strong class="project-name">{{ p.name }}</strong>
         <span v-if="p.id === store.activeId" class="badge">当前</span>
       </div>
       <div class="card-meta">{{ p.localRootLabel }}</div>
