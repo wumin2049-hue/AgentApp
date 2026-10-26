@@ -1,4 +1,4 @@
-import { relayRequest } from '@/api/agentServer';
+import { upstreamRequest } from '@/api/agentServer';
 import type { AgentServerConfig } from '@/types';
 
 export type SlashCommandName = 'img' | 'img-async' | 'video' | 'video-quote';
@@ -99,7 +99,7 @@ export async function runSlashCommand(
 
   if (cmd.name === 'video-quote') {
     onStatus('正在查询视频报价…');
-    const q = (await relayRequest(cfg, 'videos/quote', 'POST', {
+    const q = (await upstreamRequest(cfg, 'videos/quote', 'POST', {
       model: m,
       seconds: videoSeconds,
       extra_parameters: { resolution: '480P' },
@@ -125,7 +125,7 @@ export async function runSlashCommand(
 
   if (cmd.name === 'video') {
     onStatus(`正在创建视频任务（${videoSeconds} 秒）…`);
-    const created = (await relayRequest(
+    const created = (await upstreamRequest(
       cfg,
       'videos/generations',
       'POST',
@@ -144,7 +144,7 @@ export async function runSlashCommand(
 
     onStatus(`视频任务已提交（${created.status || 'queued'}）…`);
     const task = await relayPoll(
-      () => relayRequest(cfg, `videos/tasks/${encodeURIComponent(vid)}`, 'GET') as Promise<TaskLike & { result?: { url?: string } }>,
+      () => upstreamRequest(cfg, `videos/tasks/${encodeURIComponent(vid)}`, 'GET') as Promise<TaskLike & { result?: { url?: string } }>,
       {
         interval: 6000,
         timeout: 600_000,
@@ -158,7 +158,7 @@ export async function runSlashCommand(
 
   if (cmd.name === 'img-async') {
     onStatus('正在创建生图任务…');
-    const job = (await relayRequest(
+    const job = (await upstreamRequest(
       cfg,
       'images/generations/async',
       'POST',
@@ -177,7 +177,7 @@ export async function runSlashCommand(
 
     const done = (await relayPoll(
       () =>
-        relayRequest(cfg, `images/tasks/${encodeURIComponent(jid)}`, 'GET') as Promise<
+        upstreamRequest(cfg, `images/tasks/${encodeURIComponent(jid)}`, 'GET') as Promise<
           TaskLike & { data?: unknown; result?: unknown }
         >,
       {
@@ -195,7 +195,7 @@ export async function runSlashCommand(
   }
 
   onStatus('正在生成图片…');
-  const resp = (await relayRequest(
+  const resp = (await upstreamRequest(
     cfg,
     'images/generations',
     'POST',

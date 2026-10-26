@@ -4,84 +4,54 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="light" />
-  <meta name="theme-color" content="#faf7f2" />
+  <meta name="theme-color" content="#e8f1fc" />
   <title>AI 设置</title>
   <link rel="stylesheet" href="assets/app.css" />
 </head>
 <body>
   <div class="app-shell">
-    <div class="preview-banner">静态 HTML 预览 · 暖白主题</div>
+    <div class="preview-banner">静态 HTML 预览 · 浅蓝科技主题</div>
 
-    <header class="app-header">
+    <header class="app-header app-header-glow">
       <h1>AI 设置</h1>
-      <div class="sub">全局共用 · 所有项目使用同一套 Agent 配置</div>
+      <div class="sub">Harness 接口配置 · 全局生效 · 所有项目共用</div>
     </header>
 
     <main class="app-main">
-      <div class="card">
-        <span class="card-title">Agent 站点</span>
+      <div class="card card-premium">
+        <span class="card-title">接口配置</span>
+        <p class="hint-text" style="margin:0 0 14px">填写上游 API 地址与 Key，对齐 agent Harness。</p>
         <div class="field">
-          <label>站点 URL</label>
-          <input type="url" value="https://abs.is-best.net/agent" placeholder="https://你的域名/agent" />
+          <label>API 地址</label>
+          <input type="url" value="https://api.deepseek.com" placeholder="https://api.deepseek.com" />
         </div>
         <div class="field">
-          <label>Agent ID</label>
-          <input type="number" value="1" min="1" />
-        </div>
-        <div class="field">
-          <label>访问密码（若站点开启了密码保护）</label>
-          <input type="password" placeholder="••••••" autocomplete="off" />
+          <label>API Key</label>
+          <input type="password" placeholder="sk-…" autocomplete="off" />
         </div>
         <div class="btn-row" style="margin-top:12px">
           <button class="btn btn-primary" type="button">测试连接</button>
           <button class="btn btn-ghost" type="button">保存</button>
         </div>
-        <p class="hint-text ok" style="margin-top:10px">连接正常，可以开始对话</p>
-        <ul class="test-steps" style="margin:10px 0 0;padding-left:18px;font-size:13px;color:var(--muted)">
-          <li>✓ ping.php：ok</li>
-          <li>✓ chat.php：ok</li>
-          <li>✓ 已登录 / CSRF 就绪</li>
-          <li>✓ 模型列表：3 个</li>
-          <li>✓ 上游模型：上游可达</li>
-        </ul>
+        <p class="hint-text ok" style="margin-top:10px">连接正常，可以拉取模型并开始对话</p>
       </div>
 
-      <div class="card">
+      <div class="card card-premium">
         <span class="card-title">模型</span>
         <div class="field">
           <label>默认模型</label>
-          <input type="text" value="deepseek-chat" placeholder="从下方列表选择或手动填写" />
+          <input type="text" value="deepseek-chat" />
         </div>
-        <div class="btn-row">
-          <button class="btn btn-ghost" type="button">从上游拉取模型</button>
-          <button class="btn btn-ghost" type="button">刷新已存模型</button>
-        </div>
-        <div class="model-chips" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+        <button class="btn btn-primary btn-block" type="button" style="margin-top:8px">拉取模型列表</button>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
           <button type="button" class="chip active">deepseek-chat</button>
           <button type="button" class="chip">gpt-4o-mini</button>
-          <button type="button" class="chip">claude-3-5-sonnet</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <span class="card-title">高级</span>
-        <div class="field">
-          <label>Max Tokens</label>
-          <input type="number" value="8192" />
-        </div>
-        <div class="field">
-          <label>Temperature</label>
-          <input type="number" value="0.7" step="0.1" min="0" max="2" />
-        </div>
-        <div class="field">
-          <label>系统补充说明（可选）</label>
-          <textarea rows="3" placeholder="追加到每次对话的 system prompt"></textarea>
         </div>
       </div>
 
       <div class="card">
         <span class="card-title">关于</span>
-        <p class="hint-text" style="margin:0">mincode v1.0.6 · 文件工具在本地执行，模型经 Agent relay 转发</p>
+        <p class="hint-text" style="margin:0">mincode v1.0.7 · 工具本地执行 · 模型直连上游 API</p>
       </div>
     </main>
 

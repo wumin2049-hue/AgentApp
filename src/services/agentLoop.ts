@@ -169,8 +169,8 @@ export async function runAgentLoop(
   if (!model) {
     throw new Error('请先在「设置」中配置默认模型');
   }
-  if (!agent.baseUrl?.trim()) {
-    throw new Error('请先在「设置」中配置 Agent 站点 URL');
+  if (!agent.apiBaseUrl?.trim() || !agent.apiKey?.trim()) {
+    throw new Error('请先在「设置」中配置 API 地址与 Key');
   }
 
   const digestNote = harnessDigestFormat(harnessDigest);

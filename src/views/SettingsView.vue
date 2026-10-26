@@ -1,39 +1,41 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useAgentSettingsStore } from '@/stores/agentSettings';
 import {
   testAgentConnection,
-  listStoredModels,
   fetchModelsFromUpstream,
-  normalizeBaseUrl,
+  normalizeApiBaseUrl,
 } from '@/api/agentServer';
 
 const agentSettings = useAgentSettingsStore();
-const version = '1.0.6';
+const version = '1.0.7';
 
 const form = reactive({
-  baseUrl: '',
-  agentId: 1,
+  apiBaseUrl: '',
+  apiKey: '',
   model: '',
-  accessPassword: '',
   maxTokens: 8192,
   temperature: 0.7,
   systemPrompt: '',
 });
 
+const keyTouched = ref(false);
 const testMsg = ref('');
 const testSteps = ref<string[]>([]);
 const testBusy = ref(false);
-const modelsBusy = ref(false);
 const fetchBusy = ref(false);
 const saveMsg = ref('');
 
+const keyPlaceholder = computed(() =>
+  agentSettings.apiKeyMask ? `已保存 ${agentSettings.apiKeyMask}` : 'sk-…',
+);
+
 function syncFormFromStore() {
   const c = agentSettings.config;
-  form.baseUrl = c.baseUrl || '';
-  form.agentId = c.agentId || 1;
+  form.apiBaseUrl = c.apiBaseUrl || '';
+  form.apiKey = '';
+  keyTouched.value = false;
   form.model = c.model || '';
-  form.accessPassword = c.accessPassword || '';
   form.maxTokens = c.maxTokens ?? 8192;
   form.temperature = c.temperature ?? 0.7;
   form.systemPrompt = c.systemPrompt || '';
@@ -46,15 +48,17 @@ onMounted(async () => {
 
 async function save() {
   saveMsg.value = '';
-  await agentSettings.update({
-    baseUrl: normalizeBaseUrl(form.baseUrl),
-    agentId: Number(form.agentId) || 1,
+  const patch: Partial<typeof agentSettings.config> = {
+    apiBaseUrl: normalizeApiBaseUrl(form.apiBaseUrl),
     model: form.model.trim(),
-    accessPassword: form.accessPassword,
     maxTokens: Number(form.maxTokens) || 8192,
     temperature: Number(form.temperature) || 0.7,
     systemPrompt: form.systemPrompt.trim(),
-  });
+  };
+  if (keyTouched.value) {
+    patch.apiKey = form.apiKey.trim();
+  }
+  await agentSettings.update(patch);
   saveMsg.value = '已保存';
 }
 
@@ -65,7 +69,6 @@ async function runTest() {
   try {
     await save();
     const result = await testAgentConnection(agentSettings.agentConfig);
-    await agentSettings.refreshSession();
     testSteps.value = result.steps;
     testMsg.value = result.message;
   } catch (e) {
@@ -75,28 +78,11 @@ async function runTest() {
   }
 }
 
-async function loadModels() {
-  modelsBusy.value = true;
-  saveMsg.value = '';
-  try {
-    await save();
-    await agentSettings.refreshSession();
-    const models = await listStoredModels(agentSettings.agentConfig);
-    await agentSettings.setModels(models);
-    saveMsg.value = `已加载 ${models.length} 个模型`;
-  } catch (e) {
-    saveMsg.value = e instanceof Error ? e.message : String(e);
-  } finally {
-    modelsBusy.value = false;
-  }
-}
-
 async function pullModels() {
   fetchBusy.value = true;
   saveMsg.value = '';
   try {
     await save();
-    await agentSettings.refreshSession();
     const result = await fetchModelsFromUpstream(agentSettings.agentConfig);
     await agentSettings.setModels(result.models);
     if (result.defaultModel && !form.model) {
@@ -111,30 +97,39 @@ async function pullModels() {
   }
 }
 
-function pickModel(key: string) {
+async function pickModel(key: string) {
   form.model = key;
+  await save();
 }
 </script>
 
 <template>
-  <header class="app-header">
+  <header class="app-header app-header-glow">
     <h1>AI 设置</h1>
-    <div class="sub">全局共用 · 所有项目使用同一套 Agent 配置</div>
+    <div class="sub">Harness 接口配置 · 全局生效 · 所有项目共用</div>
   </header>
   <main class="app-main">
-    <div class="card">
-      <span class="card-title">Agent 站点</span>
+    <div class="card card-premium">
+      <span class="card-title">接口配置</span>
+      <p class="card-desc">对齐 agent Harness：填写上游 API 地址与 Key，本地执行工具循环。</p>
       <div class="field">
-        <label>站点 URL</label>
-        <input v-model="form.baseUrl" placeholder="https://你的域名/agent" />
+        <label>API 地址</label>
+        <input
+          v-model="form.apiBaseUrl"
+          type="url"
+          placeholder="https://api.deepseek.com"
+          autocomplete="off"
+        />
       </div>
       <div class="field">
-        <label>Agent ID</label>
-        <input v-model.number="form.agentId" type="number" min="1" />
-      </div>
-      <div class="field">
-        <label>访问密码（若站点开启了密码保护）</label>
-        <input v-model="form.accessPassword" type="password" autocomplete="off" />
+        <label>API Key</label>
+        <input
+          v-model="form.apiKey"
+          type="password"
+          :placeholder="keyPlaceholder"
+          autocomplete="off"
+          @input="keyTouched = true"
+        />
       </div>
       <div class="btn-row" style="margin-top:12px">
         <button class="btn btn-primary" :disabled="testBusy" @click="runTest">
@@ -143,39 +138,43 @@ function pickModel(key: string) {
         <button class="btn btn-ghost" @click="save">保存</button>
       </div>
       <p v-if="saveMsg" class="hint-text ok" style="margin-top:10px">{{ saveMsg }}</p>
-      <p v-if="testMsg" class="hint-text" :class="testSteps.length ? 'ok' : 'err'" style="margin-top:10px;white-space:pre-wrap">{{ testMsg }}</p>
+      <p
+        v-if="testMsg"
+        class="hint-text"
+        :class="testSteps.length ? 'ok' : 'err'"
+        style="margin-top:10px;white-space:pre-wrap"
+      >
+        {{ testMsg }}
+      </p>
       <ul v-if="testSteps.length" class="test-steps">
         <li v-for="(s, i) in testSteps" :key="i">{{ s }}</li>
       </ul>
     </div>
 
-    <div class="card">
+    <div class="card card-premium">
       <span class="card-title">模型</span>
       <div class="field">
         <label>默认模型</label>
-        <input v-model="form.model" placeholder="从下方列表选择或手动填写" />
+        <input v-model="form.model" placeholder="拉取后点选，或手动填写 model id" />
       </div>
       <div class="btn-row">
-        <button class="btn btn-ghost" :disabled="fetchBusy" @click="pullModels">
-          {{ fetchBusy ? '拉取中…' : '从上游拉取模型' }}
-        </button>
-        <button class="btn btn-ghost" :disabled="modelsBusy" @click="loadModels">
-          {{ modelsBusy ? '加载中…' : '刷新已存模型' }}
+        <button class="btn btn-primary" :disabled="fetchBusy" @click="pullModels">
+          {{ fetchBusy ? '拉取中…' : '拉取模型列表' }}
         </button>
       </div>
       <div v-if="agentSettings.models.length" class="model-chips">
         <button
           v-for="m in agentSettings.models"
-          :key="m.id"
+          :key="m.model_key"
           type="button"
           class="chip"
-          :class="{ active: form.model === m.model_key, disabled: m.is_enabled === 0 }"
+          :class="{ active: form.model === m.model_key }"
           @click="pickModel(m.model_key)"
         >
           {{ m.model_key }}
         </button>
       </div>
-      <p v-else class="hint-text" style="margin:10px 0 0">保存配置后点「从上游拉取模型」或「刷新已存模型」</p>
+      <p v-else class="hint-text" style="margin:10px 0 0">保存 API 配置后点「拉取模型列表」</p>
     </div>
 
     <div class="card">
@@ -196,12 +195,18 @@ function pickModel(key: string) {
 
     <div class="card">
       <span class="card-title">关于</span>
-      <p class="hint-text" style="margin:0">mincode v{{ version }} · 文件工具在本地执行，模型经 Agent relay 转发</p>
+      <p class="hint-text" style="margin:0">mincode v{{ version }} · 工具本地执行 · 模型直连上游 API</p>
     </div>
   </main>
 </template>
 
 <style scoped>
+.card-desc {
+  margin: -4px 0 14px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
 .test-steps {
   margin: 10px 0 0;
   padding-left: 18px;
@@ -213,8 +218,5 @@ function pickModel(key: string) {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
-}
-.chip.disabled {
-  opacity: 0.45;
 }
 </style>

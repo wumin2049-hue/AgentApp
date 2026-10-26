@@ -44,7 +44,7 @@ export const useProjectsStore = defineStore('projects', {
       const agentStore = useAgentSettingsStore();
       if (!agentStore.loaded) await agentStore.load();
       for (const p of projects) {
-        if (p.agent?.baseUrl) {
+        if (p.agent?.apiBaseUrl || (p.agent as { baseUrl?: string })?.baseUrl) {
           await agentStore.migrateFromProjectAgent(p.agent);
         }
       }

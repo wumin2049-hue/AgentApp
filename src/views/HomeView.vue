@@ -22,7 +22,8 @@ const active = computed(() => projects.active);
         <div class="project-name">{{ active.name }}</div>
         <div class="card-meta">
           <div class="meta-row"><span>📁</span><span>{{ active.localRootLabel }}</span></div>
-          <div class="meta-row"><span>🌐</span><span>{{ agentSettings.config.baseUrl || '未配置 AI' }}</span></div>
+          <div class="meta-row"><span>🤖</span><span>{{ agentSettings.config.model || '未选模型' }}</span></div>
+          <div class="meta-row"><span>🌐</span><span>{{ agentSettings.config.apiBaseUrl || '未配置 API' }}</span></div>
         </div>
         <div class="btn-row">
           <button class="btn btn-primary" @click="router.push('/chat')">开始改代码</button>
@@ -40,7 +41,7 @@ const active = computed(() => projects.active);
     <div class="card">
       <span class="card-title">工作流</span>
       <ol class="flow-list">
-        <li>在「设置」里配置 Agent 地址与模型（全局共用）</li>
+        <li>在「设置」里配置 API 地址、Key 与模型（全局共用）</li>
         <li>选择手机本地代码目录</li>
         <li>对话中 AI 读写本地沙盒中的项目文件</li>
         <li>改完后一键 FTP 上传变更文件</li>

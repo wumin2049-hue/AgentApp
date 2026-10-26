@@ -1,13 +1,9 @@
-/** 与 agent/ 服务端对齐的 Agent 配置（精简） */
+/** Harness 对齐：上游 OpenAI 兼容 API 配置（全局共用） */
 export interface AgentServerConfig {
-  /** agent 站点根 URL，如 https://example.com/agent */
-  baseUrl: string;
-  agentId: number;
-  /** 站点访问密码（若 agent 开启了 auth） */
-  accessPassword?: string;
-  /** 会话 Cookie（登录后由 App 保存） */
-  sessionCookie?: string;
-  csrf?: string;
+  /** 上游 API 地址，如 https://api.deepseek.com */
+  apiBaseUrl: string;
+  /** API Key（Bearer Token） */
+  apiKey: string;
   model?: string;
   systemPrompt?: string;
   maxTokens?: number;
@@ -37,7 +33,7 @@ export interface WorkProject {
   /** Capacitor Directory URI 或 SAF document tree URI */
   localRootUri: string;
   localRootLabel: string;
-  /** @deprecated 已迁移到全局 AI 设置，仅用于旧数据兼容 */
+  /** @deprecated 已迁移到全局 AI 设置 */
   agent?: AgentServerConfig;
   ftp: FtpConfig;
   /** 远程路径 ↔ 本地相对路径 映射前缀（可选） */

@@ -19,7 +19,7 @@ const chat = useChatStore();
 const aiStatusLine = computed(() => {
   if (!agentSettings.isConfigured) return '';
   const model = agentSettings.config.model?.trim();
-  const host = agentSettings.config.baseUrl.replace(/^https?:\/\//, '').split('/')[0];
+  const host = agentSettings.config.apiBaseUrl.replace(/^https?:\/\//, '').split('/')[0];
   return model ? `${model} · ${host}` : host;
 });
 const input = ref('');
@@ -101,7 +101,7 @@ async function send() {
   const text = input.value.trim();
   if (!text || !project.value || busy.value) return;
   if (!agentSettings.isConfigured) {
-    chat.setError('请先在「设置」中配置 Agent 站点 URL');
+    chat.setError('请先在「设置」中配置 API 地址与 Key');
     return;
   }
   if (!agentSettings.config.model?.trim()) {
@@ -122,8 +122,6 @@ async function send() {
   chat.setStreaming(true);
 
   try {
-    await agentSettings.refreshSession();
-
     const slash = parseSlashCommand(text);
     if (slash) {
       const content = await runSlashCommand(
@@ -225,7 +223,7 @@ async function uploadModified() {
 
   <main class="app-main">
     <div v-if="!agentSettings.isConfigured" class="card card-warn">
-      <p class="hint-text" style="margin:0">尚未配置 AI。请先在设置里填写 Agent 站点、测试连接并选择模型。</p>
+      <p class="hint-text" style="margin:0">尚未配置 AI。请在设置里填写 API 地址与 Key，测试连接后拉取并选择模型。</p>
       <button class="btn btn-primary btn-block" style="margin-top:12px" type="button" @click="router.push('/settings')">
         去设置
       </button>

@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia';
 import { Preferences } from '@capacitor/preferences';
 import type { AgentServerConfig } from '@/types';
-import { ensureAgentSession } from '@/api/agentServer';
 
 const STORAGE_KEY = 'mincode_agent_settings';
 
@@ -10,19 +9,38 @@ export interface AgentModelRow {
   model_key: string;
   name?: string;
   is_enabled?: number;
-  agent_id?: number;
 }
 
 function defaultConfig(): AgentServerConfig {
   return {
-    baseUrl: '',
-    agentId: 1,
+    apiBaseUrl: '',
+    apiKey: '',
     model: '',
-    accessPassword: '',
     maxTokens: 8192,
     temperature: 0.7,
     toolsEnabled: true,
   };
+}
+
+function migrateLegacyConfig(raw: Record<string, unknown>): AgentServerConfig {
+  const cfg = defaultConfig();
+  if (typeof raw.apiBaseUrl === 'string' && raw.apiBaseUrl.trim()) {
+    cfg.apiBaseUrl = raw.apiBaseUrl.trim();
+  }
+  if (typeof raw.apiKey === 'string') {
+    cfg.apiKey = raw.apiKey;
+  }
+  if (typeof raw.model === 'string') cfg.model = raw.model;
+  if (typeof raw.systemPrompt === 'string') cfg.systemPrompt = raw.systemPrompt;
+  if (typeof raw.maxTokens === 'number') cfg.maxTokens = raw.maxTokens;
+  if (typeof raw.temperature === 'number') cfg.temperature = raw.temperature;
+  if (typeof raw.toolsEnabled === 'boolean') cfg.toolsEnabled = raw.toolsEnabled;
+
+  // 旧版 agent 站点配置（baseUrl）无法自动转为上游 Key，仅保留 model
+  if (!cfg.apiBaseUrl && typeof raw.baseUrl === 'string' && raw.baseUrl.trim()) {
+    if (!cfg.model && typeof raw.model === 'string') cfg.model = raw.model;
+  }
+  return cfg;
 }
 
 export const useAgentSettingsStore = defineStore('agentSettings', {
@@ -34,10 +52,16 @@ export const useAgentSettingsStore = defineStore('agentSettings', {
 
   getters: {
     isConfigured(state): boolean {
-      return Boolean(state.config.baseUrl?.trim());
+      return Boolean(state.config.apiBaseUrl?.trim() && state.config.apiKey?.trim());
     },
     agentConfig(state): AgentServerConfig {
       return { ...state.config };
+    },
+    apiKeyMask(state): string {
+      const k = state.config.apiKey || '';
+      if (!k) return '';
+      if (k.length <= 8) return '••••';
+      return `${k.slice(0, 4)}…${k.slice(-4)}`;
     },
   },
 
@@ -46,8 +70,8 @@ export const useAgentSettingsStore = defineStore('agentSettings', {
       const raw = await Preferences.get({ key: STORAGE_KEY });
       if (raw.value) {
         try {
-          const data = JSON.parse(raw.value) as Partial<AgentServerConfig> & { models?: AgentModelRow[] };
-          this.config = { ...defaultConfig(), ...data };
+          const data = JSON.parse(raw.value) as Record<string, unknown> & { models?: AgentModelRow[] };
+          this.config = migrateLegacyConfig(data);
           if (Array.isArray(data.models)) {
             this.models = data.models;
           }
@@ -78,34 +102,13 @@ export const useAgentSettingsStore = defineStore('agentSettings', {
       await this.persist();
     },
 
-    /** 从旧版「每项目 agent 配置」迁移一次 */
-    /** 登录并刷新 CSRF，供对话/拉模型前调用 */
-    async refreshSession(): Promise<AgentServerConfig> {
-      const next = await ensureAgentSession(this.config);
-      if (next.csrf !== this.config.csrf || next.baseUrl !== this.config.baseUrl) {
-        this.config = { ...this.config, ...next };
+    async migrateFromProjectAgent(agent?: AgentServerConfig) {
+      if (!agent) return;
+      if (this.isConfigured) return;
+      if (agent.apiBaseUrl?.trim() && agent.apiKey?.trim()) {
+        this.config = { ...this.config, ...agent };
         await this.persist();
       }
-      return this.config;
-    },
-
-    async migrateFromProjectAgent(agent?: AgentServerConfig) {
-      if (!agent?.baseUrl?.trim()) return;
-      if (this.config.baseUrl?.trim()) return;
-      this.config = {
-        ...this.config,
-        baseUrl: agent.baseUrl,
-        agentId: agent.agentId || 1,
-        model: agent.model || '',
-        accessPassword: agent.accessPassword || '',
-        maxTokens: agent.maxTokens ?? 8192,
-        temperature: agent.temperature ?? 0.7,
-        systemPrompt: agent.systemPrompt,
-        toolsEnabled: agent.toolsEnabled ?? true,
-        csrf: agent.csrf,
-        sessionCookie: agent.sessionCookie,
-      };
-      await this.persist();
     },
   },
 });
