@@ -94,6 +94,17 @@ export async function deleteProjectFile(project: WorkProject, relPath: string): 
   });
 }
 
+/** 递归删除沙盒内目录 */
+export async function deleteProjectDir(project: WorkProject, relPath: string): Promise<void> {
+  const rel = normRel(relPath);
+  if (!rel || rel.includes('..')) throw new Error('非法目录路径');
+  await Filesystem.rmdir({
+    path: storagePath(project.id, rel),
+    directory: Directory.Data,
+    recursive: true,
+  });
+}
+
 export async function createLocalDir(project: WorkProject, relPath: string): Promise<void> {
   const rel = normRel(relPath);
   if (!rel) throw new Error('目录名不能为空');
@@ -270,6 +281,36 @@ export async function clearModifiedFiles(projectId: string): Promise<void> {
     await Filesystem.deleteFile({
       path: `${APP_DATA}/projects/${projectId}/.modified.json`,
       directory: Directory.Data,
+    });
+  } catch {
+    /* noop */
+  }
+}
+
+/** 从修改列表中移除已成功处理的路径，保留失败项 */
+export async function removeModifiedFiles(projectId: string, done: string[]): Promise<void> {
+  if (!done.length) return;
+  const remaining = (await getModifiedFiles(projectId)).filter((p) => !done.includes(p));
+  const key = `${APP_DATA}/projects/${projectId}/.modified.json`;
+  if (!remaining.length) {
+    await clearModifiedFiles(projectId);
+    return;
+  }
+  await Filesystem.writeFile({
+    path: key,
+    data: JSON.stringify(remaining),
+    directory: Directory.Data,
+    encoding: Encoding.UTF8,
+  });
+}
+
+/** 删除项目沙盒目录（配置删除时可选清理） */
+export async function deleteProjectSandbox(projectId: string): Promise<void> {
+  try {
+    await Filesystem.rmdir({
+      path: `${APP_DATA}/projects/${projectId}`,
+      directory: Directory.Data,
+      recursive: true,
     });
   } catch {
     /* noop */

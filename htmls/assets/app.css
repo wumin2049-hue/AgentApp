@@ -127,15 +127,23 @@ a {
   opacity: 0.75;
 }
 
-.tab-bar a.router-link-active,
+.tab-bar a.router-link-exact-active,
 .tab-bar a.active {
   color: var(--accent);
   background: var(--accent-soft);
 }
 
-.tab-bar a.router-link-active .tab-icon,
+.tab-bar a.router-link-exact-active .tab-icon,
 .tab-bar a.active .tab-icon {
   opacity: 1;
+}
+
+.boot-splash {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
 }
 
 .card {

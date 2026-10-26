@@ -41,6 +41,7 @@ async function relayPoll<T extends TaskLike>(
     interval?: number;
     timeout?: number;
     onTick?: (t: T) => void;
+    signal?: AbortSignal;
   } = {},
 ): Promise<T> {
   const interval = opts.interval ?? 3000;
@@ -50,13 +51,24 @@ async function relayPoll<T extends TaskLike>(
   const isError = (t: T) => t.status === 'failed' || t.status === 'error';
 
   while (Date.now() < deadline) {
+    if (opts.signal?.aborted) throw new DOMException('已取消', 'AbortError');
     const t = await query();
     opts.onTick?.(t);
     if (isError(t)) {
       throw new Error(t.error_message || t.error || '任务失败');
     }
     if (isDone(t)) return t;
-    await new Promise((r) => setTimeout(r, interval));
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        opts.signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, interval);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new DOMException('已取消', 'AbortError'));
+      };
+      if (opts.signal) opts.signal.addEventListener('abort', onAbort, { once: true });
+    });
   }
   throw new Error('任务超时，请稍后重试');
 }
@@ -89,6 +101,7 @@ export async function runSlashCommand(
   cmd: SlashCommand,
   model: string,
   onStatus: (status: string) => void,
+  signal?: AbortSignal,
 ): Promise<string> {
   const m = model || cfg.model || '';
   if (!m) {
@@ -148,6 +161,7 @@ export async function runSlashCommand(
       {
         interval: 6000,
         timeout: 600_000,
+        signal,
         onTick: (t) => onStatus(`视频任务：${t.status || '处理中'}…`),
       },
     );
@@ -183,6 +197,7 @@ export async function runSlashCommand(
       {
         interval: 3000,
         timeout: 300_000,
+        signal,
         onTick: (t) => onStatus(`生图任务：${t.status || '处理中'}…`),
       },
     )) as { data?: { data?: Array<{ url?: string; b64_json?: string }> }; result?: { data?: Array<{ url?: string; b64_json?: string }> } };

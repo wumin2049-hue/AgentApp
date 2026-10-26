@@ -6,9 +6,10 @@ import {
   fetchModelsFromUpstream,
   normalizeApiBaseUrl,
 } from '@/api/agentServer';
+import { APP_VERSION } from '@/version';
 
 const agentSettings = useAgentSettingsStore();
-const version = '1.0.7';
+const version = APP_VERSION;
 
 const form = reactive({
   apiBaseUrl: '',
@@ -132,7 +133,14 @@ async function pickStorageRoot() {
       <button class="btn btn-primary btn-block" type="button" :disabled="rootBusy" @click="pickStorageRoot">
         {{ rootBusy ? '选择中…' : '选择会话存储总目录' }}
       </button>
-      <p v-if="rootMsg" class="hint-text err" style="margin-top:10px">{{ rootMsg }}</p>
+      <p
+        v-if="rootMsg"
+        class="hint-text"
+        :class="rootMsg.startsWith('已设置') ? 'ok' : 'err'"
+        style="margin-top:10px"
+      >
+        {{ rootMsg }}
+      </p>
     </div>
 
     <div class="card card-premium" v-else>
@@ -224,21 +232,32 @@ async function pickStorageRoot() {
       <span class="card-title">高级</span>
       <div class="field">
         <label>Max Tokens</label>
-        <input v-model.number="form.maxTokens" type="number" />
+        <input v-model.number="form.maxTokens" type="number" @change="save" />
       </div>
       <div class="field">
         <label>Temperature</label>
-        <input v-model.number="form.temperature" type="number" step="0.1" min="0" max="2" />
+        <input v-model.number="form.temperature" type="number" step="0.1" min="0" max="2" @change="save" />
       </div>
       <div class="field">
         <label>系统补充说明（可选）</label>
-        <textarea v-model="form.systemPrompt" rows="3" placeholder="追加到每次对话的 system prompt" />
+        <textarea
+          v-model="form.systemPrompt"
+          rows="3"
+          placeholder="追加到每次对话的 system prompt"
+          @change="save"
+        />
       </div>
+      <button class="btn btn-ghost btn-block" type="button" style="margin-top:8px" @click="save">
+        保存高级设置
+      </button>
     </div>
 
     <div class="card">
       <span class="card-title">关于</span>
       <p class="hint-text" style="margin:0">mincode v{{ version }} · 工具本地执行 · 模型直连上游 API</p>
+      <p class="hint-text" style="margin:8px 0 0">
+        凭据保存在本机 Preferences；已关闭 Android 系统备份以降低泄露风险。局域网 HTTP/FTP 为有意开启。
+      </p>
     </div>
   </main>
 </template>

@@ -18,8 +18,8 @@ export interface AgentModelRow {
 function defaultConfig(): AgentServerConfig {
   return {
     apiBaseUrl: 'https://ai.1k0.com/v1',
-    apiKey: 'sk-ar-5ad8692d1cfc051618b194057511756e5f55ee66fe0d6beb0bf5b879a0dc6509',
-    model: 'deepseek-4.1-flash',
+    apiKey: '',
+    model: '',
     maxTokens: 8192,
     temperature: 0.7,
     toolsEnabled: true,

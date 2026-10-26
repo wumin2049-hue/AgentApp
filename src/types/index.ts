@@ -62,6 +62,8 @@ export interface ChatSessionMeta {
 export interface ChatSessionData {
   messages: ChatMessage[];
   lastModified: string[];
+  /** 会话级工具记忆（与消息一并落盘） */
+  harnessDigest?: HarnessDigest;
 }
 
 export interface ToolLogEntry {

@@ -5,11 +5,12 @@ import { useProjectsStore } from '@/stores/projects';
 import { useAgentSettingsStore } from '@/stores/agentSettings';
 import { useChatStore } from '@/stores/chat';
 import { runAgentLoop } from '@/services/agentLoop';
-import { getModifiedFiles, clearModifiedFiles, exportModifiedToPhone, listLocalEntries } from '@/services/localFs';
+import { getModifiedFiles, removeModifiedFiles, exportModifiedToPhone, listLocalEntries } from '@/services/localFs';
 import { ftpUploadModifiedProject } from '@/plugins/ftp';
 import { parseSlashCommand, runSlashCommand } from '@/api/mediaRelay';
 import { scopeLabel } from '@/services/projectScope';
 import ChatMessage from '@/components/ChatMessage.vue';
+import { nextTick } from 'vue';
 
 const router = useRouter();
 const projects = useProjectsStore();
@@ -35,6 +36,10 @@ const topDirs = ref<string[]>([]);
 const sessionBusy = ref(false);
 const projectSheetOpen = ref(false);
 const inputEl = ref<HTMLTextAreaElement | null>(null);
+const messagesEndEl = ref<HTMLElement | null>(null);
+const sessionListCollapsed = ref(true);
+const abortCtl = ref<AbortController | null>(null);
+const dockPad = ref(0);
 
 const project = computed(() =>
   projects.projects.find((p) => p.id === selectedId.value) || projects.active,
@@ -89,7 +94,13 @@ function openProjectSheet() {
 function closeProjectSheet() {
   if (!projectSheetOpen.value) return;
   projectSheetOpen.value = false;
+  document.body.style.overflow = '';
   focusChatInput();
+}
+
+function openProjectSheetSafe() {
+  openProjectSheet();
+  document.body.style.overflow = 'hidden';
 }
 
 function onProjectSheetKeydown(e: KeyboardEvent) {
@@ -97,6 +108,27 @@ function onProjectSheetKeydown(e: KeyboardEvent) {
     e.preventDefault();
     closeProjectSheet();
   }
+}
+
+async function scrollToBottom() {
+  await nextTick();
+  messagesEndEl.value?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+}
+
+function stopGeneration() {
+  abortCtl.value?.abort();
+}
+
+function onViewportResize() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const overlap = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  dockPad.value = overlap > 40 ? overlap : 0;
+}
+
+function confirmClearSession() {
+  if (!window.confirm('清空当前会话的全部消息？此操作不可恢复。')) return;
+  void chat.clear();
 }
 
 async function loadTopDirs() {
@@ -189,13 +221,26 @@ onMounted(async () => {
   }
   await loadTopDirs();
   window.addEventListener('keydown', onProjectSheetKeydown);
-  // 延迟聚焦，避免被其它初始化抢焦点
+  window.visualViewport?.addEventListener('resize', onViewportResize);
+  window.visualViewport?.addEventListener('scroll', onViewportResize);
   focusChatInput();
+  void scrollToBottom();
 });
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onProjectSheetKeydown);
+  window.visualViewport?.removeEventListener('resize', onViewportResize);
+  window.visualViewport?.removeEventListener('scroll', onViewportResize);
+  document.body.style.overflow = '';
+  abortCtl.value?.abort();
 });
+
+watch(
+  () => chat.messages.length,
+  () => {
+    void scrollToBottom();
+  },
+);
 
 watch(
   () => chat.workRoot,
@@ -233,6 +278,11 @@ async function send() {
     return;
   }
 
+  // 同步加锁，防止连点双发
+  busy.value = true;
+  chat.setStreaming(true);
+  statusMsg.value = '';
+
   const prior = chat.messages
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .map((m) => ({ role: m.role, content: m.content }));
@@ -241,9 +291,10 @@ async function send() {
   chat.pushUser(text);
   const assistantId = chat.beginAssistant();
   input.value = '';
-  busy.value = true;
-  statusMsg.value = '';
-  chat.setStreaming(true);
+  void scrollToBottom();
+
+  const ctl = new AbortController();
+  abortCtl.value = ctl;
 
   try {
     const slash = parseSlashCommand(text);
@@ -255,6 +306,7 @@ async function send() {
         (s) => {
           statusMsg.value = s;
         },
+        ctl.signal,
       );
       chat.updateAssistant(assistantId, content);
       chat.applyResult({ content, toolLog: [], modifiedFiles: [] }, assistantId);
@@ -269,6 +321,7 @@ async function send() {
       (e) => {
         if (e.type === 'delta') {
           chat.updateAssistant(assistantId, e.content, e.reasoning);
+          void scrollToBottom();
         }
         if (e.type === 'tool') {
           chat.toolLog.push(e.entry);
@@ -281,17 +334,23 @@ async function send() {
       prior,
       chat.workRoot,
       chat.harnessDigest,
+      ctl.signal,
     );
     chat.applyResult(result, assistantId);
     await chat.persist();
   } catch (e) {
-    chat.setError(e instanceof Error ? e.message : String(e));
+    const aborted = e instanceof DOMException && e.name === 'AbortError';
+    const msg = aborted ? '已停止生成' : e instanceof Error ? e.message : String(e);
+    chat.setError(msg);
+    chat.fillAssistantError(assistantId, msg);
     await chat.persist();
   } finally {
+    if (abortCtl.value === ctl) abortCtl.value = null;
     busy.value = false;
     chat.setStreaming(false);
     statusMsg.value = '';
     focusChatInput();
+    void scrollToBottom();
   }
 }
 
@@ -300,16 +359,18 @@ async function exportToPhone() {
   exportBusy.value = true;
   exportMsg.value = '';
   try {
-    const files = chat.lastModified.length
-      ? chat.lastModified
-      : await getModifiedFiles(project.value.id);
+    const files = await getModifiedFiles(project.value.id);
     if (!files.length) {
       exportMsg.value = '没有待写回的修改记录';
       return;
     }
     const result = await exportModifiedToPhone(project.value, files);
     const errHint = result.errors?.length ? `（${result.errors.length} 个失败）` : '';
-    exportMsg.value = `已写回手机 ${result.exported} 个文件${errHint}`;
+    exportMsg.value = `已写回手机 ${result.exported}/${files.length} 个文件${errHint}`;
+    if (result.exported > 0) {
+      // 仅移除成功写出的路径较难精确对齐时，保留全部并提示用户可再试失败项
+      // export API 未返回成功列表时保持累计列表，由沙盒记录为准
+    }
   } catch (e) {
     exportMsg.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -328,8 +389,11 @@ async function uploadModified() {
       return;
     }
     const done = await ftpUploadModifiedProject(project.value, files);
-    uploadMsg.value = `已上传 ${done.length} 个文件：${done.join('、')}`;
-    await clearModifiedFiles(project.value.id);
+    const fail = files.length - done.length;
+    uploadMsg.value = fail
+      ? `已上传 ${done.length}/${files.length}，失败 ${fail} 个仍保留在队列`
+      : `已上传 ${done.length} 个文件：${done.join('、') || '—'}`;
+    await removeModifiedFiles(project.value.id, done);
   } catch (e) {
     uploadMsg.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -375,43 +439,59 @@ async function uploadModified() {
     >
       <div class="session-card-head">
         <span class="card-title" style="margin:0">会话</span>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          @click="sessionListCollapsed = !sessionListCollapsed"
+        >
+          {{ sessionListCollapsed ? '展开' : '收起' }}
+        </button>
       </div>
       <p class="session-root-hint">
         存储于：{{ agentSettings.chatStorageRoot?.label || '—' }}
+        <template v-if="chat.activeSession">
+          · 当前：{{ chat.activeSession.title || '未命名' }}
+        </template>
       </p>
-      <div v-if="!chat.sessions.length" class="hint-text" style="margin:8px 0 0">暂无会话</div>
-      <ul v-else class="session-list">
-        <li
-          v-for="s in chat.sessions"
-          :key="s.id"
-          class="session-item"
-          :class="{ active: s.id === chat.sessionId }"
-        >
-          <button
-            type="button"
-            class="session-main"
-            :disabled="busy || chat.streaming || sessionBusy"
-            @click="onSwitchSession(s.id)"
+      <template v-if="!sessionListCollapsed">
+        <div v-if="!chat.sessions.length" class="hint-text" style="margin:8px 0 0">暂无会话</div>
+        <ul v-else class="session-list">
+          <li
+            v-for="s in chat.sessions"
+            :key="s.id"
+            class="session-item"
+            :class="{ active: s.id === chat.sessionId }"
           >
-            <span class="session-title">{{ s.title || '未命名会话' }}</span>
-            <span class="session-meta">
-              {{ formatSessionTime(s.updatedAt) }}
-              <template v-if="s.messageCount"> · {{ s.messageCount }} 条</template>
-            </span>
-            <span v-if="s.preview" class="session-preview">{{ s.preview }}</span>
-          </button>
-          <button
-            type="button"
-            class="session-del"
-            title="删除会话"
-            :disabled="busy || chat.streaming || sessionBusy"
-            @click="onDeleteSession(s.id)"
-          >
-            删除
-          </button>
-        </li>
-      </ul>
+            <button
+              type="button"
+              class="session-main"
+              :disabled="busy || chat.streaming || sessionBusy"
+              @click="onSwitchSession(s.id)"
+            >
+              <span class="session-title">{{ s.title || '未命名会话' }}</span>
+              <span class="session-meta">
+                {{ formatSessionTime(s.updatedAt) }}
+                <template v-if="s.messageCount"> · {{ s.messageCount }} 条</template>
+              </span>
+              <span v-if="s.preview" class="session-preview">{{ s.preview }}</span>
+            </button>
+            <button
+              type="button"
+              class="session-del"
+              title="删除会话"
+              :disabled="busy || chat.streaming || sessionBusy"
+              @click="onDeleteSession(s.id)"
+            >
+              删除
+            </button>
+          </li>
+        </ul>
+      </template>
     </div>
+
+    <p v-if="chat.nearMessageCap" class="hint-text" style="margin:8px 0">
+      提示：会话消息接近上限（{{ chat.messageCap }} 条），更早的消息保存时可能被截断。
+    </p>
 
     <ChatMessage
       v-for="m in chat.messages"
@@ -423,6 +503,15 @@ async function uploadModified() {
     />
 
     <p v-if="statusMsg" class="status-line">{{ statusMsg }}</p>
+    <button
+      v-if="busy || chat.streaming"
+      type="button"
+      class="btn btn-ghost btn-sm"
+      style="margin:8px 0"
+      @click="stopGeneration"
+    >
+      停止生成
+    </button>
 
     <div v-if="chat.toolLog.length" class="tool-card">
       <span class="card-title">工具轨迹</span>
@@ -437,9 +526,10 @@ async function uploadModified() {
     </div>
 
     <p v-if="chat.error" class="hint-text err">{{ chat.error }}</p>
+    <div ref="messagesEndEl" aria-hidden="true" />
   </main>
 
-  <div class="chat-input-dock">
+  <div class="chat-input-dock" :style="dockPad ? { bottom: `calc(64px + var(--safe-b) + ${dockPad}px)` } : undefined">
     <div class="chat-input-wrap chat-input-wrap--compact">
       <div class="chat-input-bar">
         <textarea
@@ -454,8 +544,21 @@ async function uploadModified() {
           @keydown.enter.exact.prevent="send"
           @pointerdown.stop
         />
-        <button class="btn btn-primary" :disabled="!canSend || !input.trim()" @click="send">
-          {{ busy ? '…' : '发送' }}
+        <button
+          v-if="busy || chat.streaming"
+          class="btn btn-ghost"
+          type="button"
+          @click="stopGeneration"
+        >
+          停止
+        </button>
+        <button
+          v-else
+          class="btn btn-primary"
+          :disabled="!canSend || !input.trim()"
+          @click="send"
+        >
+          发送
         </button>
       </div>
     </div>
@@ -466,9 +569,9 @@ async function uploadModified() {
     class="chat-fab"
     title="项目与工作区"
     aria-label="打开项目设置"
-    @click="openProjectSheet"
+    @click="openProjectSheetSafe"
   >
-    <span class="chat-fab-icon">▤</span>
+    <span class="chat-fab-icon" aria-hidden="true">▤</span>
   </button>
 
   <div
@@ -496,7 +599,7 @@ async function uploadModified() {
 
         <template v-if="project">
           <p class="ftp-context-hint" style="margin-top:10px">
-            📁 项目根：<strong>{{ project.localRootLabel }}</strong>
+            <span aria-hidden="true">📁</span> 项目根：<strong>{{ project.localRootLabel }}</strong>
             <span class="scope-tag">沙盒 /</span>
           </p>
 
@@ -577,13 +680,13 @@ async function uploadModified() {
               class="btn btn-ghost btn-compact"
               type="button"
               :disabled="busy || chat.streaming || !chat.storageReady"
-              @click="chat.clear()"
+              @click="confirmClearSession"
             >
               清空当前会话
             </button>
           </div>
           <p class="slash-hint slash-hint--sheet">
-            斜杠命令：<code>/img</code> <code>/img-async</code> <code>/video</code> <code>/video-quote</code>
+            斜杠命令（需图像/视频能力模型）：<code>/img</code> <code>/img-async</code> <code>/video</code> <code>/video-quote</code>
           </p>
           <p v-if="uploadMsg" class="hint-text ok" style="margin-top:8px">{{ uploadMsg }}</p>
           <p v-if="exportMsg" class="hint-text ok" style="margin-top:8px">{{ exportMsg }}</p>

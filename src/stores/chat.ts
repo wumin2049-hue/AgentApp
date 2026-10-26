@@ -7,6 +7,7 @@ import {
   bumpSessionMeta,
   deleteSessionDir,
   ensureProjectSessions,
+  MAX_MESSAGES,
   newSessionMeta,
   readSessionData,
   writeProjectIndex,
@@ -20,6 +21,17 @@ function workRootKey(projectId: string): string {
 
 function legacyChatKey(projectId: string): string {
   return `abs_chat_${projectId}`;
+}
+
+let msgSeq = 0;
+function nextMessageId(suffix = ''): string {
+  msgSeq += 1;
+  return `m_${Date.now().toString(36)}_${msgSeq}${suffix ? `_${suffix}` : ''}`;
+}
+
+function digestFromSession(data: { harnessDigest?: HarnessDigest }, projectId: string, sessionId: string): HarnessDigest {
+  if (data.harnessDigest) return data.harnessDigest;
+  return loadHarnessDigest(projectId, sessionId);
 }
 
 export const useChatStore = defineStore('chat', {
@@ -40,6 +52,12 @@ export const useChatStore = defineStore('chat', {
   getters: {
     activeSession(state): ChatSessionMeta | undefined {
       return state.sessions.find((s) => s.id === state.sessionId);
+    },
+    messageCap(): number {
+      return MAX_MESSAGES;
+    },
+    nearMessageCap(state): boolean {
+      return state.messages.length >= MAX_MESSAGES - 5;
     },
   },
 
@@ -107,7 +125,7 @@ export const useChatStore = defineStore('chat', {
       this.applyIndex(index);
       this.messages = data.messages;
       this.lastModified = data.lastModified;
-      this.harnessDigest = loadHarnessDigest(projectId, this.sessionId);
+      this.harnessDigest = digestFromSession(data, projectId, this.sessionId);
       this.storageReady = true;
     },
 
@@ -131,7 +149,9 @@ export const useChatStore = defineStore('chat', {
       await writeSessionData(root, this.projectId, this.sessionId, {
         messages: this.messages,
         lastModified: this.lastModified,
+        harnessDigest: this.harnessDigest,
       });
+      saveHarnessDigest(this.projectId, this.harnessDigest, this.sessionId);
 
       const idx = this.sessions.findIndex((s) => s.id === this.sessionId);
       if (idx >= 0) {
@@ -186,7 +206,7 @@ export const useChatStore = defineStore('chat', {
       this.lastModified = data.lastModified;
       this.toolLog = [];
       this.error = '';
-      this.harnessDigest = loadHarnessDigest(this.projectId, sessionId);
+      this.harnessDigest = digestFromSession(data, this.projectId, sessionId);
       await writeProjectIndex(root, this.projectId, {
         sessions: this.sessions,
         activeSessionId: this.sessionId,
@@ -225,7 +245,7 @@ export const useChatStore = defineStore('chat', {
         this.lastModified = data.lastModified;
         this.toolLog = [];
         this.error = '';
-        this.harnessDigest = loadHarnessDigest(this.projectId, next.id);
+        this.harnessDigest = digestFromSession(data, this.projectId, next.id);
       }
 
       await writeProjectIndex(root, this.projectId, {
@@ -268,7 +288,7 @@ export const useChatStore = defineStore('chat', {
 
     pushUser(text: string) {
       this.messages.push({
-        id: `m_${Date.now()}`,
+        id: nextMessageId('u'),
         role: 'user',
         content: text,
         createdAt: new Date().toISOString(),
@@ -276,7 +296,7 @@ export const useChatStore = defineStore('chat', {
     },
 
     beginAssistant(): string {
-      const id = `m_${Date.now()}_a`;
+      const id = nextMessageId('a');
       this.messages.push({
         id,
         role: 'assistant',
@@ -296,7 +316,7 @@ export const useChatStore = defineStore('chat', {
 
     pushAssistant(text: string, reasoning?: string) {
       this.messages.push({
-        id: `m_${Date.now()}`,
+        id: nextMessageId('a'),
         role: 'assistant',
         content: text,
         reasoning,
@@ -306,7 +326,9 @@ export const useChatStore = defineStore('chat', {
 
     applyResult(result: AgentTurnResult, assistantId?: string) {
       this.toolLog = result.toolLog;
-      this.lastModified = result.modifiedFiles;
+      // 累计本轮修改到会话 lastModified，避免覆盖历史轮次
+      const merged = new Set([...this.lastModified, ...result.modifiedFiles]);
+      this.lastModified = [...merged];
       if (result.harnessDigest) {
         this.harnessDigest = result.harnessDigest;
         if (this.projectId) {
@@ -326,6 +348,13 @@ export const useChatStore = defineStore('chat', {
 
     setError(msg: string) {
       this.error = msg;
+    },
+
+    fillAssistantError(assistantId: string, msg: string) {
+      const m = this.messages.find((x) => x.id === assistantId);
+      if (m && !m.content.trim()) {
+        m.content = `（失败）${msg}`;
+      }
     },
   },
 });

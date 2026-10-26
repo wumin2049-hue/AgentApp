@@ -289,7 +289,13 @@ export async function chatTurnStream(
   cfg: AgentServerConfig,
   messages: unknown[],
   tools: unknown[],
-  opts: { model: string; max_tokens?: number; temperature?: number; tool_choice?: string },
+  opts: {
+    model: string;
+    max_tokens?: number;
+    temperature?: number;
+    tool_choice?: string;
+    signal?: AbortSignal;
+  },
   onDelta: (content: string, reasoning: string) => void,
 ): Promise<ChatTurnResult> {
   const session = { ...cfg, apiBaseUrl: normalizeApiBaseUrl(cfg.apiBaseUrl) };
@@ -307,12 +313,14 @@ export async function chatTurnStream(
   let lastErr = '流式请求失败';
   for (const base of bases) {
     try {
+      if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       const res = await fetch(`${base}/chat/completions`, {
         method: 'POST',
         headers: {
           ...upstreamHeaders(session, { 'Content-Type': 'application/json', Accept: 'text/event-stream' }),
         },
         body: JSON.stringify(payload),
+        signal: opts.signal,
       });
       const ct = (res.headers.get('Content-Type') || '').toLowerCase();
       if (res.ok && ct.includes('text/event-stream')) {
@@ -322,6 +330,8 @@ export async function chatTurnStream(
       const text = await res.text();
       lastErr = `HTTP ${res.status}：${text.slice(0, 200)}`;
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') throw e;
+      if (opts.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       lastErr = e instanceof Error ? e.message : String(e);
     }
   }
@@ -329,6 +339,7 @@ export async function chatTurnStream(
   try {
     return await chatTurn(session, messages, tools, opts);
   } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw e;
     const detail = e instanceof Error ? e.message : String(e);
     throw new Error(`${lastErr}；非流式回退也失败：${detail}`);
   }
@@ -339,7 +350,13 @@ export async function chatTurn(
   cfg: AgentServerConfig,
   messages: unknown[],
   tools: unknown[],
-  opts: { model: string; max_tokens?: number; temperature?: number; tool_choice?: string },
+  opts: {
+    model: string;
+    max_tokens?: number;
+    temperature?: number;
+    tool_choice?: string;
+    signal?: AbortSignal;
+  },
 ): Promise<ChatTurnResult> {
   const session = { ...cfg, apiBaseUrl: normalizeApiBaseUrl(cfg.apiBaseUrl) };
   const payload = {
@@ -356,6 +373,7 @@ export async function chatTurn(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal: opts.signal,
   });
   const data = (await res.json()) as {
     choices?: Array<{

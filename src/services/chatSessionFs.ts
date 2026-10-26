@@ -6,7 +6,7 @@ import {
 } from '@/plugins/project-storage';
 import type { ChatMessage, ChatSessionData, ChatSessionMeta } from '@/types';
 
-const MAX_MESSAGES = 100;
+export const MAX_MESSAGES = 100;
 
 export interface ChatStorageRoot {
   uri: string;
@@ -86,6 +86,7 @@ export async function readSessionData(
     return {
       messages: Array.isArray(data.messages) ? data.messages : [],
       lastModified: Array.isArray(data.lastModified) ? data.lastModified : [],
+      harnessDigest: data.harnessDigest,
     };
   } catch {
     return { messages: [], lastModified: [] };
@@ -101,6 +102,7 @@ export async function writeSessionData(
   const payload: ChatSessionData = {
     messages: data.messages.slice(-MAX_MESSAGES),
     lastModified: data.lastModified,
+    harnessDigest: data.harnessDigest,
   };
   await writeTreeText(
     root.uri,

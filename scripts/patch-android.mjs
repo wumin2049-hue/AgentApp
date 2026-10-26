@@ -40,14 +40,22 @@ for (const file of plugins) {
 const manifestPath = path.join(appDir, 'src', 'main', 'AndroidManifest.xml');
 if (fs.existsSync(manifestPath)) {
   let manifest = fs.readFileSync(manifestPath, 'utf8');
+  let changed = false;
   if (!manifest.includes('usesCleartextTraffic')) {
     manifest = manifest.replace(
       /<application/,
       '<application\n        android:usesCleartextTraffic="true"',
     );
-    fs.writeFileSync(manifestPath, manifest);
+    changed = true;
     console.log('已开启 Android 明文 HTTP（usesCleartextTraffic）');
   }
+  // 凭据存在 Preferences，关闭系统备份降低泄露风险
+  if (manifest.includes('android:allowBackup="true"')) {
+    manifest = manifest.replace('android:allowBackup="true"', 'android:allowBackup="false"');
+    changed = true;
+    console.log('已关闭 android:allowBackup');
+  }
+  if (changed) fs.writeFileSync(manifestPath, manifest);
 }
 
 const gradlePath = path.join(appDir, 'build.gradle');
@@ -59,9 +67,25 @@ if (fs.existsSync(gradlePath)) {
       /dependencies\s*\{/,
       `dependencies {\n    ${dep}`,
     );
-    fs.writeFileSync(gradlePath, gradle);
-    console.log('已在 app/build.gradle 添加 commons-net 依赖');
   }
+  // 从 package.json 注入 versionName / versionCode
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    const ver = String(pkg.version || '1.0.0');
+    const parts = ver.split('.').map((n) => parseInt(n, 10) || 0);
+    const versionCode = Math.max(1, (parts[0] || 0) * 10000 + (parts[1] || 0) * 100 + (parts[2] || 0));
+    if (/versionName\s+"[^"]*"/.test(gradle)) {
+      gradle = gradle.replace(/versionName\s+"[^"]*"/, `versionName "${ver}"`);
+    }
+    if (/versionCode\s+\d+/.test(gradle)) {
+      gradle = gradle.replace(/versionCode\s+\d+/, `versionCode ${versionCode}`);
+    }
+    console.log(`已注入 Android 版本 versionName=${ver} versionCode=${versionCode}`);
+  } catch (e) {
+    console.warn('注入 Android 版本失败', e);
+  }
+  fs.writeFileSync(gradlePath, gradle);
+  console.log('已更新 app/build.gradle');
 }
 
 const mainCandidates = [

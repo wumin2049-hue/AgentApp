@@ -13,6 +13,7 @@ import {
   listLocalFilesRecursive,
   readProjectFile,
   deleteProjectFile,
+  deleteProjectDir,
   createLocalDir,
   syncProjectFiles,
   exportModifiedToPhone,
@@ -116,10 +117,19 @@ function switchTab(next: 'local' | 'remote') {
   refresh();
 }
 
+function pickLocal(entry: LocalEntry) {
+  pickedLocal.value = entry;
+  pickedRemote.value = null;
+}
+
+function pickRemote(entry: FtpEntry) {
+  pickedRemote.value = entry;
+  pickedLocal.value = null;
+}
+
 function enterLocal(entry: LocalEntry) {
   if (!entry.isDirectory) {
-    pickedLocal.value = entry;
-    pickedRemote.value = null;
+    pickLocal(entry);
     return;
   }
   localPath.value = entry.relPath;
@@ -129,8 +139,7 @@ function enterLocal(entry: LocalEntry) {
 
 function enterRemote(entry: FtpEntry) {
   if (!entry.isDirectory) {
-    pickedRemote.value = entry;
-    pickedLocal.value = null;
+    pickRemote(entry);
     return;
   }
   remotePath.value = entry.path.endsWith('/') ? entry.path : `${entry.path}/`;
@@ -205,17 +214,21 @@ async function batchUploadDir() {
   try {
     const files = await listLocalFilesRecursive(project.value, localPath.value);
     let ok = 0;
+    const failed: string[] = [];
     for (const rel of files) {
       try {
         const remote = remotePathForLocalRel(project.value, rel);
         const localSandbox = `agent-app/projects/${project.value.id}/${rel}`;
         await ftpUploadFile(project.value.ftp, localSandbox, remote);
         ok++;
-      } catch {
-        /* skip */
+      } catch (e) {
+        failed.push(`${rel}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    okMsg.value = `已上传 ${ok}/${files.length} 个文件`;
+    okMsg.value = `已上传 ${ok}/${files.length} 个文件（含子目录，递归）`;
+    if (failed.length) {
+      err.value = `失败 ${failed.length} 个：${failed.slice(0, 3).join('；')}${failed.length > 3 ? '…' : ''}`;
+    }
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -230,26 +243,34 @@ async function batchPullDir() {
   }
   const files = remoteEntries.value.filter((e) => !e.isDirectory);
   if (!files.length) {
-    okMsg.value = '当前目录没有可拉取的文件';
+    okMsg.value = '当前远程目录没有可拉取的文件（不含子目录）';
     return;
   }
   busy.value = true;
   err.value = '';
+  okMsg.value = '';
   try {
     let ok = 0;
+    const failed: string[] = [];
     for (const entry of files) {
       try {
         const rel = sandboxRelFromRemote(entry.path, project.value.ftp, project.value.pathPrefix || '');
-        if (!rel) continue;
+        if (!rel) {
+          failed.push(`${entry.name}: 无法映射本地路径`);
+          continue;
+        }
         const localSandbox = `agent-app/projects/${project.value.id}/${rel}`;
         await ftpDownloadFile(project.value.ftp, entry.path, localSandbox);
         await trackModified(project.value.id, rel);
         ok++;
-      } catch {
-        /* skip */
+      } catch (e) {
+        failed.push(`${entry.name}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    okMsg.value = `已拉取 ${ok}/${files.length} 个文件到本地`;
+    okMsg.value = `已拉取 ${ok}/${files.length} 个文件到本地（仅当前目录）`;
+    if (failed.length) {
+      err.value = `失败 ${failed.length} 个：${failed.slice(0, 3).join('；')}${failed.length > 3 ? '…' : ''}`;
+    }
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -288,12 +309,16 @@ async function exportLocalToPhone(entry: LocalEntry) {
 }
 
 async function deleteLocal(entry: LocalEntry) {
-  if (!project.value || entry.isDirectory) return;
-  if (!confirm(`删除本地文件 ${entry.relPath}？`)) return;
+  if (!project.value) return;
+  const tip = entry.isDirectory
+    ? `删除本地目录 ${entry.relPath} 及其全部内容？`
+    : `删除本地文件 ${entry.relPath}？`;
+  if (!confirm(tip)) return;
   busy.value = true;
   err.value = '';
   try {
-    await deleteProjectFile(project.value, entry.relPath);
+    if (entry.isDirectory) await deleteProjectDir(project.value, entry.relPath);
+    else await deleteProjectFile(project.value, entry.relPath);
     okMsg.value = `已删除 ${entry.name}`;
     pickedLocal.value = null;
     await refresh();
@@ -348,7 +373,11 @@ async function pullRemoteToLocal(entry: FtpEntry) {
 }
 
 async function deleteRemote(entry: FtpEntry) {
-  if (!project.value || entry.isDirectory) return;
+  if (!project.value) return;
+  if (entry.isDirectory) {
+    err.value = '暂不支持直接删除远程目录，请先清空其中文件';
+    return;
+  }
   if (!confirm(`删除远程文件 ${entry.name}？`)) return;
   busy.value = true;
   err.value = '';
@@ -380,8 +409,8 @@ onMounted(async () => {
 
 <template>
   <header class="app-header">
-    <h1>文件管理</h1>
-    <div class="sub">线下沙盒 ↔ 线上 FTP</div>
+    <h1>FTP 文件</h1>
+    <div class="sub">本地沙盒 ↔ 远程 FTP</div>
   </header>
 
   <main class="app-main ftp-page">
@@ -438,11 +467,11 @@ onMounted(async () => {
       <div class="batch-bar">
         <template v-if="tab === 'local'">
           <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="syncFromPhone">同步手机</button>
-          <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="batchUploadDir">全部上传</button>
+          <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="batchUploadDir">全部上传（递归）</button>
           <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="mkdirHere">新建夹</button>
         </template>
         <template v-else>
-          <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="batchPullDir">全部拉取</button>
+          <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="batchPullDir">全部拉取（当前目录）</button>
           <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="mkdirHere">新建夹</button>
         </template>
       </div>
@@ -457,6 +486,7 @@ onMounted(async () => {
           class="ftp-entry"
           :class="{ selected: pickedLocal?.relPath === e.relPath }"
           @click="enterLocal(e)"
+          @contextmenu.prevent="pickLocal(e)"
         >
           <span class="icon">{{ e.isDirectory ? '📁' : '📄' }}</span>
           <span class="entry-name">{{ e.name }}</span>
@@ -472,6 +502,7 @@ onMounted(async () => {
           class="ftp-entry"
           :class="{ selected: pickedRemote?.path === e.path }"
           @click="enterRemote(e)"
+          @contextmenu.prevent="pickRemote(e)"
         >
           <span class="icon">{{ e.isDirectory ? '📁' : '📄' }}</span>
           <span class="entry-name">{{ e.name }}</span>
@@ -482,22 +513,58 @@ onMounted(async () => {
         </p>
       </template>
 
-      <div v-if="pickedLocal && !pickedLocal.isDirectory" class="action-sheet">
+      <div v-if="pickedLocal" class="action-sheet">
         <span class="action-sheet-title">{{ pickedLocal.name }}</span>
         <div class="action-sheet-btns">
-          <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="viewLocal(pickedLocal)">查看</button>
-          <button class="btn btn-primary btn-sm" type="button" :disabled="busy" @click="uploadLocalToFtp(pickedLocal)">上传</button>
-          <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="exportLocalToPhone(pickedLocal)">写回手机</button>
-          <button class="btn btn-danger btn-sm" type="button" :disabled="busy" @click="deleteLocal(pickedLocal)">删除</button>
+          <button
+            v-if="!pickedLocal.isDirectory"
+            class="btn btn-ghost btn-sm"
+            type="button"
+            :disabled="busy"
+            @click="viewLocal(pickedLocal)"
+          >
+            查看
+          </button>
+          <button
+            v-if="!pickedLocal.isDirectory"
+            class="btn btn-primary btn-sm"
+            type="button"
+            :disabled="busy"
+            @click="uploadLocalToFtp(pickedLocal)"
+          >
+            上传
+          </button>
+          <button
+            v-if="!pickedLocal.isDirectory"
+            class="btn btn-ghost btn-sm"
+            type="button"
+            :disabled="busy"
+            @click="exportLocalToPhone(pickedLocal)"
+          >
+            写回手机
+          </button>
+          <button class="btn btn-danger btn-sm" type="button" :disabled="busy" @click="deleteLocal(pickedLocal)">
+            删除
+          </button>
           <button class="btn btn-ghost btn-sm" type="button" @click="pickedLocal = null">取消</button>
         </div>
       </div>
 
-      <div v-if="pickedRemote && !pickedRemote.isDirectory" class="action-sheet">
+      <div v-if="pickedRemote" class="action-sheet">
         <span class="action-sheet-title">{{ pickedRemote.name }}</span>
         <div class="action-sheet-btns">
-          <button class="btn btn-primary btn-sm" type="button" :disabled="busy" @click="pullRemoteToLocal(pickedRemote)">拉取</button>
-          <button class="btn btn-danger btn-sm" type="button" :disabled="busy" @click="deleteRemote(pickedRemote)">删除</button>
+          <button
+            v-if="!pickedRemote.isDirectory"
+            class="btn btn-primary btn-sm"
+            type="button"
+            :disabled="busy"
+            @click="pullRemoteToLocal(pickedRemote)"
+          >
+            拉取
+          </button>
+          <button class="btn btn-danger btn-sm" type="button" :disabled="busy" @click="deleteRemote(pickedRemote)">
+            删除
+          </button>
           <button class="btn btn-ghost btn-sm" type="button" @click="pickedRemote = null">取消</button>
         </div>
       </div>

@@ -155,6 +155,10 @@ export type AgentLoopEvent =
 /**
  * 移动端 Agent 循环：对齐 agent/lib/agent_loop.php + harness.php
  */
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw new DOMException('已取消', 'AbortError');
+}
+
 export async function runAgentLoop(
   project: WorkProject,
   agent: AgentServerConfig,
@@ -164,6 +168,7 @@ export async function runAgentLoop(
   priorMessages: Array<{ role: string; content: string }> = [],
   workRoot = '',
   harnessDigest: HarnessDigest = { modified_files: [], read_files: [], grep_keys: [] },
+  signal?: AbortSignal,
 ): Promise<AgentTurnResult> {
   const model = agent.model || '';
   if (!model) {
@@ -206,6 +211,7 @@ export async function runAgentLoop(
   const editIntent = wantsEdit(userText);
 
   for (let round = 0; round < maxRounds; round++) {
+    throwIfAborted(signal);
     const remaining = maxRounds - round;
     let useTools: unknown[] = [...TOOL_DEFINITIONS];
     let forceTurn = false;
@@ -248,6 +254,7 @@ export async function runAgentLoop(
       model,
       max_tokens: agent.maxTokens ?? 8192,
       temperature: agent.temperature ?? 0.7,
+      signal,
       ...(forceTurn && useTools.length ? { tool_choice: 'required' as const } : {}),
     };
 
@@ -301,8 +308,9 @@ export async function runAgentLoop(
       toolLogWithArgs.push({ ...entry, args });
       onEvent({ type: 'tool', entry });
 
-      if (res.ok && HARNESS_WRITE_TOOLS.has(name) && args.path) {
-        modified.add(String(args.path));
+      if (res.ok && HARNESS_WRITE_TOOLS.has(name)) {
+        const g = guardPath(String(args.path || ''), workRoot, true);
+        if (g.ok) modified.add(g.rel);
       }
 
       messages.push({
