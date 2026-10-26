@@ -52,3 +52,21 @@ export async function exportFilesToPhone(
 ): Promise<ExportFilesResult> {
   return ProjectStorage.exportFiles({ treeUri, projectId, paths });
 }
+
+export async function writeTreeText(treeUri: string, path: string, data: string): Promise<void> {
+  await ProjectStorage.writeTreeText({ treeUri, path, data });
+}
+
+export async function readTreeText(treeUri: string, path: string): Promise<string> {
+  const r = await ProjectStorage.readTreeText({ treeUri, path });
+  return r.data ?? '';
+}
+
+export async function deleteTreePath(treeUri: string, path: string): Promise<void> {
+  await ProjectStorage.deleteTreePath({ treeUri, path });
+}
+
+export async function listTreeDir(treeUri: string, path = ''): Promise<string[]> {
+  const r = await ProjectStorage.listTreeDir({ treeUri, path });
+  return r.names || [];
+}

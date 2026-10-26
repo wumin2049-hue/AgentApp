@@ -1,8 +1,12 @@
 import { defineStore } from 'pinia';
+import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
+import { FilePicker } from '@capawesome/capacitor-file-picker';
 import type { AgentServerConfig } from '@/types';
+import type { ChatStorageRoot } from '@/services/chatSessionFs';
 
 const STORAGE_KEY = 'mincode_agent_settings';
+const CHAT_ROOT_KEY = 'abs_chat_storage_root';
 
 export interface AgentModelRow {
   id: number;
@@ -20,6 +24,11 @@ function defaultConfig(): AgentServerConfig {
     temperature: 0.7,
     toolsEnabled: true,
   };
+}
+
+function labelFromUri(uri: string): string {
+  const parts = uri.split('/');
+  return decodeURIComponent(parts[parts.length - 1] || '会话目录');
 }
 
 function migrateLegacyConfig(raw: Record<string, unknown>): AgentServerConfig {
@@ -47,12 +56,16 @@ export const useAgentSettingsStore = defineStore('agentSettings', {
   state: () => ({
     config: defaultConfig() as AgentServerConfig,
     models: [] as AgentModelRow[],
+    chatStorageRoot: null as ChatStorageRoot | null,
     loaded: false,
   }),
 
   getters: {
     isConfigured(state): boolean {
       return Boolean(state.config.apiBaseUrl?.trim() && state.config.apiKey?.trim());
+    },
+    hasChatStorageRoot(state): boolean {
+      return Boolean(state.chatStorageRoot?.uri?.trim());
     },
     agentConfig(state): AgentServerConfig {
       return { ...state.config };
@@ -79,6 +92,15 @@ export const useAgentSettingsStore = defineStore('agentSettings', {
           this.config = defaultConfig();
         }
       }
+      const rootRaw = await Preferences.get({ key: CHAT_ROOT_KEY });
+      if (rootRaw.value) {
+        try {
+          const root = JSON.parse(rootRaw.value) as ChatStorageRoot;
+          if (root?.uri) this.chatStorageRoot = root;
+        } catch {
+          this.chatStorageRoot = null;
+        }
+      }
       this.loaded = true;
     },
 
@@ -92,6 +114,17 @@ export const useAgentSettingsStore = defineStore('agentSettings', {
       });
     },
 
+    async persistChatStorageRoot() {
+      if (!this.chatStorageRoot) {
+        await Preferences.remove({ key: CHAT_ROOT_KEY });
+        return;
+      }
+      await Preferences.set({
+        key: CHAT_ROOT_KEY,
+        value: JSON.stringify(this.chatStorageRoot),
+      });
+    },
+
     async update(patch: Partial<AgentServerConfig>) {
       this.config = { ...this.config, ...patch };
       await this.persist();
@@ -100,6 +133,34 @@ export const useAgentSettingsStore = defineStore('agentSettings', {
     async setModels(models: AgentModelRow[]) {
       this.models = models;
       await this.persist();
+    },
+
+    async pickChatStorageRoot(): Promise<ChatStorageRoot> {
+      try {
+        const result = await FilePicker.pickDirectory();
+        const uri = result.path || '';
+        if (!uri) throw new Error('未选择目录');
+        const root: ChatStorageRoot = { uri, label: labelFromUri(uri) };
+        this.chatStorageRoot = root;
+        await this.persistChatStorageRoot();
+        return root;
+      } catch (e) {
+        if (!Capacitor.isNativePlatform()) {
+          const root: ChatStorageRoot = {
+            uri: 'local://chat-sessions',
+            label: '本机预览会话目录',
+          };
+          this.chatStorageRoot = root;
+          await this.persistChatStorageRoot();
+          return root;
+        }
+        throw e instanceof Error ? e : new Error(String(e));
+      }
+    },
+
+    async clearChatStorageRoot() {
+      this.chatStorageRoot = null;
+      await this.persistChatStorageRoot();
     },
 
     async migrateFromProjectAgent(agent?: AgentServerConfig) {

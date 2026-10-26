@@ -25,6 +25,8 @@ const testSteps = ref<string[]>([]);
 const testBusy = ref(false);
 const fetchBusy = ref(false);
 const saveMsg = ref('');
+const rootMsg = ref('');
+const rootBusy = ref(false);
 
 const keyPlaceholder = computed(() =>
   agentSettings.apiKeyMask ? `已保存 ${agentSettings.apiKeyMask}` : 'sk-…',
@@ -101,6 +103,19 @@ async function pickModel(key: string) {
   form.model = key;
   await save();
 }
+
+async function pickStorageRoot() {
+  rootBusy.value = true;
+  rootMsg.value = '';
+  try {
+    const root = await agentSettings.pickChatStorageRoot();
+    rootMsg.value = `已设置：${root.label}`;
+  } catch (e) {
+    rootMsg.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    rootBusy.value = false;
+  }
+}
 </script>
 
 <template>
@@ -109,6 +124,34 @@ async function pickModel(key: string) {
     <div class="sub">Harness 接口配置 · 全局生效 · 所有项目共用</div>
   </header>
   <main class="app-main">
+    <div class="card card-warn" v-if="!agentSettings.hasChatStorageRoot">
+      <span class="card-title">会话存储目录（必填）</span>
+      <p class="card-desc">
+        会话以目录+文件保存（每项目一份 index.json，每个会话独立 messages.json）。必须先选择手机上的总目录。
+      </p>
+      <button class="btn btn-primary btn-block" type="button" :disabled="rootBusy" @click="pickStorageRoot">
+        {{ rootBusy ? '选择中…' : '选择会话存储总目录' }}
+      </button>
+      <p v-if="rootMsg" class="hint-text err" style="margin-top:10px">{{ rootMsg }}</p>
+    </div>
+
+    <div class="card card-premium" v-else>
+      <span class="card-title">会话存储目录</span>
+      <p class="card-desc">
+        当前总目录：<strong>{{ agentSettings.chatStorageRoot?.label }}</strong>
+      </p>
+      <p class="hint-text" style="margin:0 0 12px">
+        结构：<code>{目录}/{项目ID}/index.json</code> 与
+        <code>{目录}/{项目ID}/{会话ID}/messages.json</code>
+      </p>
+      <div class="btn-row" style="margin-top:0">
+        <button class="btn btn-primary" type="button" :disabled="rootBusy" @click="pickStorageRoot">
+          {{ rootBusy ? '选择中…' : '更换目录' }}
+        </button>
+      </div>
+      <p v-if="rootMsg" class="hint-text ok" style="margin-top:10px">{{ rootMsg }}</p>
+    </div>
+
     <div class="card card-premium">
       <span class="card-title">接口配置</span>
       <p class="card-desc">对齐 agent Harness：填写上游 API 地址与 Key，本地执行工具循环。</p>

@@ -48,6 +48,22 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+/** 会话元数据（列表展示；正文在独立 messages 文件） */
+export interface ChatSessionMeta {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  /** 首条用户消息摘要，便于列表展示 */
+  preview?: string;
+  messageCount?: number;
+}
+
+export interface ChatSessionData {
+  messages: ChatMessage[];
+  lastModified: string[];
+}
+
 export interface ToolLogEntry {
   name: string;
   label: string;

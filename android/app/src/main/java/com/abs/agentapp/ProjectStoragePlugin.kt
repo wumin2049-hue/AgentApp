@@ -211,4 +211,152 @@ class ProjectStoragePlugin : Plugin() {
             }
         }.start()
     }
+
+    private fun resolveTreeRoot(treeUri: String): DocumentFile {
+        return DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
+            ?: throw RuntimeException("无法打开目录 URI")
+    }
+
+    private fun findChild(root: DocumentFile, parts: List<String>): DocumentFile? {
+        var cur: DocumentFile = root
+        for (part in parts) {
+            if (part.isEmpty()) continue
+            cur = cur.findFile(part) ?: return null
+        }
+        return cur
+    }
+
+    private fun deleteRecursive(doc: DocumentFile): Boolean {
+        if (doc.isDirectory) {
+            doc.listFiles().forEach { child ->
+                if (!deleteRecursive(child)) return false
+            }
+        }
+        return doc.delete()
+    }
+
+    @PluginMethod
+    fun writeTreeText(call: PluginCall) {
+        val treeUri = call.getString("treeUri") ?: ""
+        val relPath = call.getString("path") ?: ""
+        val data = call.getString("data") ?: ""
+        if (treeUri.isEmpty() || relPath.isEmpty()) {
+            call.reject("treeUri and path required")
+            return
+        }
+        if (relPath.contains("..")) {
+            call.reject("invalid path")
+            return
+        }
+        Thread {
+            try {
+                val root = resolveTreeRoot(treeUri)
+                val parts = relPath.trim('/').split('/').filter { it.isNotEmpty() }
+                val fileName = parts.last()
+                val parent = if (parts.size == 1) root else getOrCreateDir(root, parts.dropLast(1))
+                    ?: throw RuntimeException("cannot create parent")
+                parent.findFile(fileName)?.delete()
+                val outDoc = parent.createFile("text/plain", fileName)
+                    ?: throw RuntimeException("createFile failed")
+                context.contentResolver.openOutputStream(outDoc.uri)?.use { output ->
+                    output.write(data.toByteArray(Charsets.UTF_8))
+                } ?: throw RuntimeException("openOutputStream failed")
+                call.resolve()
+            } catch (e: Exception) {
+                call.reject(e.message ?: "writeTreeText failed")
+            }
+        }.start()
+    }
+
+    @PluginMethod
+    fun readTreeText(call: PluginCall) {
+        val treeUri = call.getString("treeUri") ?: ""
+        val relPath = call.getString("path") ?: ""
+        if (treeUri.isEmpty() || relPath.isEmpty()) {
+            call.reject("treeUri and path required")
+            return
+        }
+        if (relPath.contains("..")) {
+            call.reject("invalid path")
+            return
+        }
+        Thread {
+            try {
+                val root = resolveTreeRoot(treeUri)
+                val parts = relPath.trim('/').split('/').filter { it.isNotEmpty() }
+                val doc = findChild(root, parts) ?: throw RuntimeException("文件不存在")
+                if (!doc.isFile) throw RuntimeException("不是文件")
+                val text = context.contentResolver.openInputStream(doc.uri)?.use { input ->
+                    input.readBytes().toString(Charsets.UTF_8)
+                } ?: throw RuntimeException("openInputStream failed")
+                val ret = JSObject()
+                ret.put("data", text)
+                call.resolve(ret)
+            } catch (e: Exception) {
+                call.reject(e.message ?: "readTreeText failed")
+            }
+        }.start()
+    }
+
+    @PluginMethod
+    fun deleteTreePath(call: PluginCall) {
+        val treeUri = call.getString("treeUri") ?: ""
+        val relPath = call.getString("path") ?: ""
+        if (treeUri.isEmpty() || relPath.isEmpty()) {
+            call.reject("treeUri and path required")
+            return
+        }
+        if (relPath.contains("..")) {
+            call.reject("invalid path")
+            return
+        }
+        Thread {
+            try {
+                val root = resolveTreeRoot(treeUri)
+                val parts = relPath.trim('/').split('/').filter { it.isNotEmpty() }
+                val doc = findChild(root, parts)
+                if (doc != null && !deleteRecursive(doc)) {
+                    throw RuntimeException("删除失败")
+                }
+                call.resolve()
+            } catch (e: Exception) {
+                call.reject(e.message ?: "deleteTreePath failed")
+            }
+        }.start()
+    }
+
+    @PluginMethod
+    fun listTreeDir(call: PluginCall) {
+        val treeUri = call.getString("treeUri") ?: ""
+        val relPath = call.getString("path") ?: ""
+        if (treeUri.isEmpty()) {
+            call.reject("treeUri required")
+            return
+        }
+        if (relPath.contains("..")) {
+            call.reject("invalid path")
+            return
+        }
+        Thread {
+            try {
+                val root = resolveTreeRoot(treeUri)
+                val dir = if (relPath.isBlank()) {
+                    root
+                } else {
+                    val parts = relPath.trim('/').split('/').filter { it.isNotEmpty() }
+                    findChild(root, parts) ?: throw RuntimeException("目录不存在")
+                }
+                if (!dir.isDirectory) throw RuntimeException("不是目录")
+                val names = JSONArray()
+                dir.listFiles().forEach { child ->
+                    child.name?.let { names.put(it) }
+                }
+                val ret = JSObject()
+                ret.put("names", names)
+                call.resolve(ret)
+            } catch (e: Exception) {
+                call.reject(e.message ?: "listTreeDir failed")
+            }
+        }.start()
+    }
 }

@@ -19,13 +19,17 @@ export function emptyDigest(): HarnessDigest {
   return { modified_files: [], read_files: [], grep_keys: [] };
 }
 
-function digestStorageKey(projectId: string): string {
-  return `${DIGEST_KEY}:${projectId}`;
+function digestStorageKey(projectId: string, sessionId?: string): string {
+  return sessionId
+    ? `${DIGEST_KEY}:${projectId}:${sessionId}`
+    : `${DIGEST_KEY}:${projectId}`;
 }
 
-export function loadHarnessDigest(projectId: string): HarnessDigest {
+export function loadHarnessDigest(projectId: string, sessionId?: string): HarnessDigest {
   try {
-    const raw = localStorage.getItem(digestStorageKey(projectId));
+    const raw =
+      (sessionId && localStorage.getItem(digestStorageKey(projectId, sessionId))) ||
+      localStorage.getItem(digestStorageKey(projectId));
     if (!raw) return emptyDigest();
     const parsed = JSON.parse(raw) as Partial<HarnessDigest>;
     return {
@@ -38,8 +42,19 @@ export function loadHarnessDigest(projectId: string): HarnessDigest {
   }
 }
 
-export function saveHarnessDigest(projectId: string, digest: HarnessDigest): void {
-  localStorage.setItem(digestStorageKey(projectId), JSON.stringify(digest));
+export function saveHarnessDigest(
+  projectId: string,
+  digest: HarnessDigest,
+  sessionId?: string,
+): void {
+  localStorage.setItem(digestStorageKey(projectId, sessionId), JSON.stringify(digest));
+}
+
+export function clearHarnessDigest(projectId: string, sessionId?: string): void {
+  if (sessionId) {
+    localStorage.removeItem(digestStorageKey(projectId, sessionId));
+  }
+  localStorage.removeItem(digestStorageKey(projectId));
 }
 
 function uniqTail(list: string[], value: string, max: number): void {

@@ -32,12 +32,21 @@ const statusMsg = ref('');
 const selectedId = ref('');
 const workRootInput = ref('');
 const topDirs = ref<string[]>([]);
+const sessionBusy = ref(false);
 
 const project = computed(() =>
   projects.projects.find((p) => p.id === selectedId.value) || projects.active,
 );
 
 const workRootHint = computed(() => scopeLabel(chat.workRoot));
+
+const canChat = computed(
+  () =>
+    Boolean(project.value) &&
+    agentSettings.hasChatStorageRoot &&
+    chat.storageReady &&
+    !busy.value,
+);
 
 const harnessMemoryHint = computed(() => {
   const d = chat.harnessDigest;
@@ -47,6 +56,17 @@ const harnessMemoryHint = computed(() => {
   if (d.grep_keys.length) parts.push(`已搜 ${d.grep_keys.length}`);
   return parts.length ? `会话工具记忆：${parts.join(' · ')}` : '';
 });
+
+function formatSessionTime(iso?: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const mm = `${d.getMonth() + 1}`.padStart(2, '0');
+  const dd = `${d.getDate()}`.padStart(2, '0');
+  const hh = `${d.getHours()}`.padStart(2, '0');
+  const mi = `${d.getMinutes()}`.padStart(2, '0');
+  return `${mm}-${dd} ${hh}:${mi}`;
+}
 
 async function loadTopDirs() {
   if (!project.value) {
@@ -62,10 +82,10 @@ async function loadTopDirs() {
 }
 
 async function onProjectChange(id: string) {
-  if (busy.value || chat.streaming) return;
+  if (busy.value || chat.streaming || sessionBusy.value) return;
   selectedId.value = id;
   await projects.setActive(id);
-  await chat.loadForProject(id);
+  await chat.loadForProject(id, true);
   workRootInput.value = chat.workRoot;
   await loadTopDirs();
 }
@@ -80,11 +100,59 @@ function useSubdir(dir: string) {
   chat.setWorkRoot(dir);
 }
 
+async function onNewSession() {
+  if (!canChat.value || sessionBusy.value) return;
+  sessionBusy.value = true;
+  try {
+    await chat.createSession();
+  } catch (e) {
+    chat.setError(e instanceof Error ? e.message : String(e));
+  } finally {
+    sessionBusy.value = false;
+  }
+}
+
+async function onSwitchSession(id: string) {
+  if (!canChat.value || sessionBusy.value || id === chat.sessionId) return;
+  sessionBusy.value = true;
+  try {
+    await chat.switchSession(id);
+  } catch (e) {
+    chat.setError(e instanceof Error ? e.message : String(e));
+  } finally {
+    sessionBusy.value = false;
+  }
+}
+
+async function onDeleteSession(id: string) {
+  if (!canChat.value || sessionBusy.value) return;
+  if (!window.confirm('删除该会话及其全部消息？此操作不可恢复。')) return;
+  sessionBusy.value = true;
+  try {
+    await chat.deleteSession(id);
+  } catch (e) {
+    chat.setError(e instanceof Error ? e.message : String(e));
+  } finally {
+    sessionBusy.value = false;
+  }
+}
+
+async function onDeleteMessage(id: string) {
+  if (busy.value || chat.streaming) return;
+  if (!window.confirm('删除这条消息？')) return;
+  try {
+    await chat.deleteMessage(id);
+  } catch (e) {
+    chat.setError(e instanceof Error ? e.message : String(e));
+  }
+}
+
 onMounted(async () => {
+  if (!agentSettings.loaded) await agentSettings.load();
   if (!projects.loaded) await projects.load();
   selectedId.value = projects.activeId || projects.projects[0]?.id || '';
   if (selectedId.value) {
-    await chat.loadForProject(selectedId.value);
+    await chat.loadForProject(selectedId.value, true);
     workRootInput.value = chat.workRoot;
   }
   await loadTopDirs();
@@ -97,9 +165,22 @@ watch(
   },
 );
 
+watch(
+  () => agentSettings.hasChatStorageRoot,
+  async (ok) => {
+    if (ok && selectedId.value) {
+      await chat.loadForProject(selectedId.value, true);
+    }
+  },
+);
+
 async function send() {
   const text = input.value.trim();
   if (!text || !project.value || busy.value) return;
+  if (!agentSettings.hasChatStorageRoot) {
+    chat.setError('请先在「设置」中选择会话数据存储目录');
+    return;
+  }
   if (!agentSettings.isConfigured) {
     chat.setError('请先在「设置」中配置 API 地址与 Key');
     return;
@@ -222,12 +303,22 @@ async function uploadModified() {
   </header>
 
   <main class="app-main">
-    <div v-if="!agentSettings.isConfigured" class="card card-warn">
+    <div v-if="!agentSettings.hasChatStorageRoot" class="card card-warn">
+      <p class="hint-text" style="margin:0">
+        会话以目录+文件形式保存。请先在设置里选择<strong>会话数据存储总目录</strong>，否则无法开始对话。
+      </p>
+      <button class="btn btn-primary btn-block" style="margin-top:12px" type="button" @click="router.push('/settings')">
+        去设置存储目录
+      </button>
+    </div>
+
+    <div v-else-if="!agentSettings.isConfigured" class="card card-warn">
       <p class="hint-text" style="margin:0">尚未配置 AI。请在设置里填写 API 地址与 Key，测试连接后拉取并选择模型。</p>
       <button class="btn btn-primary btn-block" style="margin-top:12px" type="button" @click="router.push('/settings')">
         去设置
       </button>
     </div>
+
     <div class="card" style="padding:14px">
       <label class="field-label">当前项目</label>
       <select
@@ -307,11 +398,65 @@ async function uploadModified() {
       <p class="hint-text">还没有项目，请先在「项目」页创建并绑定手机目录。</p>
     </div>
 
+    <div
+      v-if="agentSettings.hasChatStorageRoot && project"
+      class="card session-card"
+    >
+      <div class="session-card-head">
+        <span class="card-title" style="margin:0">会话</span>
+        <button
+          class="btn btn-primary btn-sm"
+          type="button"
+          :disabled="!canChat || sessionBusy"
+          @click="onNewSession"
+        >
+          开启新会话
+        </button>
+      </div>
+      <p class="session-root-hint">
+        存储于：{{ agentSettings.chatStorageRoot?.label || '—' }}
+      </p>
+      <div v-if="!chat.sessions.length" class="hint-text" style="margin:8px 0 0">暂无会话</div>
+      <ul v-else class="session-list">
+        <li
+          v-for="s in chat.sessions"
+          :key="s.id"
+          class="session-item"
+          :class="{ active: s.id === chat.sessionId }"
+        >
+          <button
+            type="button"
+            class="session-main"
+            :disabled="busy || chat.streaming || sessionBusy"
+            @click="onSwitchSession(s.id)"
+          >
+            <span class="session-title">{{ s.title || '未命名会话' }}</span>
+            <span class="session-meta">
+              {{ formatSessionTime(s.updatedAt) }}
+              <template v-if="s.messageCount"> · {{ s.messageCount }} 条</template>
+            </span>
+            <span v-if="s.preview" class="session-preview">{{ s.preview }}</span>
+          </button>
+          <button
+            type="button"
+            class="session-del"
+            title="删除会话"
+            :disabled="busy || chat.streaming || sessionBusy"
+            @click="onDeleteSession(s.id)"
+          >
+            删除
+          </button>
+        </li>
+      </ul>
+    </div>
+
     <ChatMessage
       v-for="m in chat.messages"
       :key="m.id"
       :message="m"
       :streaming="chat.streaming && m.role === 'assistant' && !m.content"
+      :deletable="!busy && !chat.streaming && agentSettings.hasChatStorageRoot"
+      @delete="onDeleteMessage"
     />
 
     <p v-if="statusMsg" class="status-line">{{ statusMsg }}</p>
@@ -337,10 +482,10 @@ async function uploadModified() {
         <textarea
           v-model="input"
           placeholder="描述要改什么… 或 /img /video 提示词"
-          :disabled="!project || busy"
+          :disabled="!canChat"
           @keydown.enter.exact.prevent="send"
         />
-        <button class="btn btn-primary" :disabled="!project || busy" @click="send">
+        <button class="btn btn-primary" :disabled="!canChat || !input.trim()" @click="send">
           {{ busy ? '…' : '发送' }}
         </button>
       </div>
@@ -352,7 +497,13 @@ async function uploadModified() {
         <button class="btn btn-ghost" :disabled="!project || uploadBusy" @click="uploadModified">
           {{ uploadBusy ? '上传中…' : 'FTP 上传' }}
         </button>
-        <button class="btn btn-ghost btn-compact" :disabled="busy" @click="chat.clear()">清空对话</button>
+        <button
+          class="btn btn-ghost btn-compact"
+          :disabled="busy || chat.streaming || !chat.storageReady"
+          @click="chat.clear()"
+        >
+          清空当前会话
+        </button>
       </div>
     </div>
   </main>
