@@ -79,12 +79,23 @@ if (fs.existsSync(gradlePath)) {
   // 去掉 kotlinOptions 块（若有）
   gradle = gradle.replace(/\s*kotlinOptions\s*\{[^}]*\}\s*/g, '\n');
 
-  const dep = "implementation 'commons-net:commons-net:3.11.1'";
-  if (!gradle.includes('commons-net')) {
-    gradle = gradle.replace(
-      /dependencies\s*\{/,
-      `dependencies {\n    ${dep}`,
-    );
+  const depsToEnsure = [
+    "implementation 'commons-net:commons-net:3.11.1'",
+    // DocumentFile（SAF 目录读写）不在默认依赖里，缺了会 compileDebugJavaWithJavac 失败
+    "implementation 'androidx.documentfile:documentfile:1.0.1'",
+  ];
+  for (const dep of depsToEnsure) {
+    const marker = dep.includes('commons-net')
+      ? 'commons-net'
+      : dep.includes('documentfile')
+        ? 'documentfile'
+        : dep;
+    if (!gradle.includes(marker)) {
+      gradle = gradle.replace(
+        /dependencies\s*\{/,
+        `dependencies {\n    ${dep}`,
+      );
+    }
   }
 
   // 确保 Java 17（Capacitor 6 / AGP 8）

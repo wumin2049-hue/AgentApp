@@ -11,8 +11,8 @@ android {
         applicationId "com.abs.agentapp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10018
-        versionName "1.0.18"
+        versionCode 10019
+        versionName "1.0.19"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -35,6 +35,7 @@ repositories {
 }
 
 dependencies {
+    implementation 'androidx.documentfile:documentfile:1.0.1'
     implementation 'commons-net:commons-net:3.11.1'
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
