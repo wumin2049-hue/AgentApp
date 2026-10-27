@@ -1,13 +1,14 @@
 import { defineStore } from 'pinia';
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
-import { FilePicker } from '@capawesome/capacitor-file-picker';
 import type { AgentServerConfig } from '@/types';
 import type { ChatStorageRoot } from '@/services/chatSessionFs';
 import {
   LOCAL_APP_DATA_URI,
   isLocalTreeUri,
   persistTreeUri,
+  pickAndPersistDirectory,
+  verifyTreeAccess,
 } from '@/plugins/project-storage';
 import {
   loadSettingsFromDataRoot,
@@ -35,16 +36,16 @@ function defaultConfig(): AgentServerConfig {
   };
 }
 
-function defaultDataRoot(): ChatStorageRoot {
+function webPreviewRoot(): ChatStorageRoot {
   return {
     uri: LOCAL_APP_DATA_URI,
-    label: '应用内部存储（默认）',
+    label: '本机预览数据目录',
   };
 }
 
-function labelFromUri(uri: string): string {
+function labelFromUri(uri: string, fallback = '应用数据目录'): string {
   const parts = uri.split('/');
-  return decodeURIComponent(parts[parts.length - 1] || '应用数据目录');
+  return decodeURIComponent(parts[parts.length - 1] || fallback);
 }
 
 function migrateLegacyConfig(raw: Record<string, unknown>): AgentServerConfig {
@@ -70,6 +71,7 @@ export const useAgentSettingsStore = defineStore('agentSettings', {
     config: defaultConfig() as AgentServerConfig,
     models: [] as AgentModelRow[],
     chatStorageRoot: null as ChatStorageRoot | null,
+    storageAccessOk: false,
     loaded: false,
   }),
 
@@ -78,9 +80,12 @@ export const useAgentSettingsStore = defineStore('agentSettings', {
       return Boolean(state.config.apiBaseUrl?.trim() && state.config.apiKey?.trim());
     },
     hasChatStorageRoot(state): boolean {
-      return Boolean(state.chatStorageRoot?.uri?.trim());
+      const uri = state.chatStorageRoot?.uri?.trim() || '';
+      if (!uri) return false;
+      // 真机不接受内部 local://，必须选手机目录
+      if (Capacitor.isNativePlatform() && isLocalTreeUri(uri)) return false;
+      return true;
     },
-    /** 是否使用用户选择的外部目录（非默认内部存储） */
     isExternalDataRoot(state): boolean {
       const uri = state.chatStorageRoot?.uri || '';
       return Boolean(uri) && !isLocalTreeUri(uri);
@@ -121,30 +126,53 @@ export const useAgentSettingsStore = defineStore('agentSettings', {
         }
       }
 
-      // 默认使用应用内部存储，保证未选目录也能对话 / 持久化
-      if (!this.chatStorageRoot?.uri) {
-        this.chatStorageRoot = defaultDataRoot();
-        await this.persistChatStorageRoot();
-      } else if (!isLocalTreeUri(this.chatStorageRoot.uri)) {
-        // 重新 take 一次持久权限（幂等）
-        await persistTreeUri(this.chatStorageRoot.uri);
+      // 真机：丢弃内部存储，强制用户授权手机目录
+      if (Capacitor.isNativePlatform()) {
+        if (!this.chatStorageRoot?.uri || isLocalTreeUri(this.chatStorageRoot.uri)) {
+          this.chatStorageRoot = null;
+          this.storageAccessOk = false;
+          await this.persistChatStorageRoot();
+        } else {
+          await this.refreshStorageAccess();
+        }
+      } else {
+        // Web 预览才用内部目录
+        if (!this.chatStorageRoot?.uri) {
+          this.chatStorageRoot = webPreviewRoot();
+          await this.persistChatStorageRoot();
+        }
+        this.storageAccessOk = true;
       }
 
-      // Preferences 为空时，尝试从数据目录恢复 settings
       const prefsEmpty = !raw.value;
-      if (prefsEmpty && this.chatStorageRoot) {
+      if (prefsEmpty && this.hasChatStorageRoot && this.chatStorageRoot) {
         const fromDisk = await loadSettingsFromDataRoot(this.chatStorageRoot);
         if (fromDisk?.config) {
           this.config = migrateLegacyConfig(fromDisk.config as unknown as Record<string, unknown>);
           if (Array.isArray(fromDisk.models)) this.models = fromDisk.models;
           await this.persist();
         }
-      } else if (this.chatStorageRoot) {
-        // 双写：确保目录里也有最新配置
+      } else if (this.hasChatStorageRoot) {
         void this.syncToDataRoot();
       }
 
       this.loaded = true;
+    },
+
+    async refreshStorageAccess(): Promise<boolean> {
+      if (!this.chatStorageRoot?.uri || isLocalTreeUri(this.chatStorageRoot.uri)) {
+        this.storageAccessOk = !Capacitor.isNativePlatform();
+        return this.storageAccessOk;
+      }
+      try {
+        await persistTreeUri(this.chatStorageRoot.uri);
+        const v = await verifyTreeAccess(this.chatStorageRoot.uri);
+        this.storageAccessOk = Boolean(v.ok);
+        return this.storageAccessOk;
+      } catch {
+        this.storageAccessOk = false;
+        return false;
+      }
     },
 
     async persist() {
@@ -159,7 +187,7 @@ export const useAgentSettingsStore = defineStore('agentSettings', {
     },
 
     async syncToDataRoot() {
-      if (!this.chatStorageRoot?.uri) return;
+      if (!this.hasChatStorageRoot || !this.chatStorageRoot?.uri) return;
       try {
         await saveSettingsToDataRoot(this.chatStorageRoot, {
           config: { ...this.config },
@@ -191,43 +219,41 @@ export const useAgentSettingsStore = defineStore('agentSettings', {
       await this.persist();
     },
 
+    /** 选择手机目录并申请读/写/列表持久权限 */
     async pickChatStorageRoot(): Promise<ChatStorageRoot> {
-      try {
-        const result = await FilePicker.pickDirectory();
-        const uri = result.path || '';
-        if (!uri) throw new Error('未选择目录');
-        await persistTreeUri(uri);
-        const root: ChatStorageRoot = { uri, label: labelFromUri(uri) };
+      if (!Capacitor.isNativePlatform()) {
+        const root = webPreviewRoot();
         this.chatStorageRoot = root;
+        this.storageAccessOk = true;
         await this.persistChatStorageRoot();
         await this.syncToDataRoot();
         return root;
-      } catch (e) {
-        if (!Capacitor.isNativePlatform()) {
-          const root = defaultDataRoot();
-          root.label = '本机预览数据目录';
-          this.chatStorageRoot = root;
-          await this.persistChatStorageRoot();
-          await this.syncToDataRoot();
-          return root;
-        }
-        throw e instanceof Error ? e : new Error(String(e));
       }
-    },
 
-    async useDefaultDataRoot(): Promise<ChatStorageRoot> {
-      const root = defaultDataRoot();
+      const picked = await pickAndPersistDirectory();
+      const uri = picked.uri?.trim();
+      if (!uri) throw new Error('未选择目录');
+      if (isLocalTreeUri(uri)) throw new Error('请选择手机上的真实文件夹');
+
+      const root: ChatStorageRoot = {
+        uri,
+        label: picked.label || labelFromUri(uri),
+      };
       this.chatStorageRoot = root;
       await this.persistChatStorageRoot();
+
+      const ok = await this.refreshStorageAccess();
+      if (!ok) {
+        throw new Error('目录授权失败：无法读取该文件夹，请重新选择并允许访问');
+      }
       await this.syncToDataRoot();
       return root;
     },
 
     async clearChatStorageRoot() {
-      // 清除外部目录后回退到内部默认，避免无法对话
-      this.chatStorageRoot = defaultDataRoot();
+      this.chatStorageRoot = null;
+      this.storageAccessOk = false;
       await this.persistChatStorageRoot();
-      await this.syncToDataRoot();
     },
 
     async migrateFromProjectAgent(agent?: AgentServerConfig) {

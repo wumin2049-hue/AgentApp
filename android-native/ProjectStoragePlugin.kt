@@ -1,26 +1,25 @@
 package com.abs.agentapp
 
+import android.app.Activity
 import android.content.Intent
-import android.content.Context
 import android.net.Uri
-import android.provider.DocumentsContract
+import androidx.activity.result.ActivityResult
 import androidx.documentfile.provider.DocumentFile
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
+import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 import org.json.JSONArray
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.net.URLDecoder
 
 /**
- * 将用户通过 SAF 选择的目录同步到 App 沙盒。
- * 复制到：files/agent-app/projects/{projectId}/
- *
- * 安装：复制到 android/app/src/main/java/com/abs/agentapp/
- * 并在 MainActivity 注册 registerPlugin(ProjectStoragePlugin::class.java)
+ * 手机本地目录（SAF）读写：同步到沙盒、写回、列目录、会话文件存储。
+ * 选择目录时申请可读可写可持久化权限。
  */
 @CapacitorPlugin(name = "AgentProjectStorage")
 class ProjectStoragePlugin : Plugin() {
@@ -37,8 +36,91 @@ class ProjectStoragePlugin : Plugin() {
         return File(context.filesDir, "agent-app/projects/$projectId").apply { mkdirs() }
     }
 
+    private fun labelFromTreeUri(uri: Uri): String {
+        val raw = uri.lastPathSegment ?: return "已选目录"
+        val name = raw.substringAfterLast(':').substringAfterLast('/')
+        return try {
+            URLDecoder.decode(name, "UTF-8").ifBlank { "已选目录" }
+        } catch (_: Exception) {
+            name.ifBlank { "已选目录" }
+        }
+    }
+
+    private fun takePersistable(uri: Uri, intentFlags: Int = 0): Boolean {
+        val flags = if (intentFlags != 0) {
+            intentFlags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        } else {
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        }.let { f ->
+            if (f == 0) Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION else f
+        }
+        return try {
+            context.contentResolver.takePersistableUriPermission(uri, flags)
+            true
+        } catch (_: SecurityException) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+                true
+            } catch (_: Exception) {
+                false
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /**
-     * 持久化 SAF 目录访问权限，否则杀进程/重开 App 后 URI 失效，表现为「数据丢失」。
+     * 系统文件夹选择器：申请读/写/持久化权限，返回 content URI。
+     */
+    @PluginMethod
+    fun pickAndPersistDirectory(call: PluginCall) {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PREFIX_URI_PERMISSION,
+            )
+        }
+        startActivityForResult(call, intent, "pickDirectoryResult")
+    }
+
+    @ActivityCallback
+    private fun pickDirectoryResult(call: PluginCall, result: ActivityResult) {
+        when (result.resultCode) {
+            Activity.RESULT_CANCELED -> {
+                call.reject("已取消选择目录")
+                return
+            }
+            Activity.RESULT_OK -> {
+                val data = result.data
+                val uri = data?.data
+                if (uri == null) {
+                    call.reject("未返回目录 URI")
+                    return
+                }
+                val ok = takePersistable(uri, data.flags)
+                val root = DocumentFile.fromTreeUri(context, uri)
+                if (root == null || !root.canRead()) {
+                    call.reject("无法读取该目录，请重新授权选择")
+                    return
+                }
+                val ret = JSObject()
+                ret.put("uri", uri.toString())
+                ret.put("label", labelFromTreeUri(uri))
+                ret.put("persisted", ok)
+                ret.put("canWrite", root.canWrite())
+                call.resolve(ret)
+            }
+            else -> call.reject("选择目录失败")
+        }
+    }
+
+    /**
+     * 持久化 SAF 目录访问权限，否则杀进程/重开 App 后 URI 失效。
      */
     @PluginMethod
     fun persistTreeUri(call: PluginCall) {
@@ -49,20 +131,47 @@ class ProjectStoragePlugin : Plugin() {
         }
         try {
             val uri = Uri.parse(treeUri)
-            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            context.contentResolver.takePersistableUriPermission(uri, flags)
+            val ok = takePersistable(uri)
+            val root = DocumentFile.fromTreeUri(context, uri)
             val ret = JSObject()
-            ret.put("ok", true)
-            call.resolve(ret)
-        } catch (e: SecurityException) {
-            // 部分 ROM / 已持久化过时可能抛异常，不阻断主流程
-            val ret = JSObject()
-            ret.put("ok", false)
-            ret.put("message", e.message ?: "persist skipped")
+            ret.put("ok", ok && root != null && root.canRead())
+            ret.put("canWrite", root?.canWrite() == true)
+            if (!ok) ret.put("message", "persist skipped")
             call.resolve(ret)
         } catch (e: Exception) {
             call.reject(e.message ?: "persistTreeUri failed")
         }
+    }
+
+    /** 校验目录是否仍可读（含列表） */
+    @PluginMethod
+    fun verifyTreeAccess(call: PluginCall) {
+        val treeUri = call.getString("treeUri") ?: ""
+        if (treeUri.isEmpty()) {
+            call.reject("treeUri required")
+            return
+        }
+        Thread {
+            try {
+                val uri = Uri.parse(treeUri)
+                takePersistable(uri)
+                val root = DocumentFile.fromTreeUri(context, uri)
+                    ?: throw RuntimeException("无法打开目录")
+                val names = JSONArray()
+                if (root.isDirectory && root.canRead()) {
+                    root.listFiles().take(20).forEach { child ->
+                        child.name?.let { names.put(it) }
+                    }
+                }
+                val ret = JSObject()
+                ret.put("ok", root.canRead())
+                ret.put("canWrite", root.canWrite())
+                ret.put("names", names)
+                call.resolve(ret)
+            } catch (e: Exception) {
+                call.reject(e.message ?: "verifyTreeAccess failed")
+            }
+        }.start()
     }
 
     private fun getOrCreateDir(root: DocumentFile, parts: List<String>): DocumentFile? {

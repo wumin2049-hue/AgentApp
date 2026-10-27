@@ -43,6 +43,19 @@ export interface TreeListResult {
   names: string[];
 }
 
+export interface PickDirectoryResult {
+  uri: string;
+  label: string;
+  persisted?: boolean;
+  canWrite?: boolean;
+}
+
+export interface VerifyTreeAccessResult {
+  ok: boolean;
+  canWrite?: boolean;
+  names?: string[];
+}
+
 export interface AgentProjectStoragePlugin {
   syncTree(options: SyncTreeOptions): Promise<SyncTreeResult>;
   /** 列出沙盒内项目相对路径（递归） */
@@ -57,6 +70,10 @@ export interface AgentProjectStoragePlugin {
   deleteTreePath(options: TreeTextOptions): Promise<void>;
   /** 列出 SAF 树某目录下的直接子项名称 */
   listTreeDir(options: TreeTextOptions): Promise<TreeListResult>;
+  /** 系统选目录并申请读/写/持久化权限 */
+  pickAndPersistDirectory(): Promise<PickDirectoryResult>;
   /** 持久化 SAF 目录读写权限（杀进程后仍可访问） */
-  persistTreeUri(options: { treeUri: string }): Promise<{ ok: boolean; message?: string }>;
+  persistTreeUri(options: { treeUri: string }): Promise<{ ok: boolean; canWrite?: boolean; message?: string }>;
+  /** 校验目录是否仍可读可列 */
+  verifyTreeAccess(options: { treeUri: string }): Promise<VerifyTreeAccessResult>;
 }

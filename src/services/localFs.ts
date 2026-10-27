@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { FilePicker } from '@capawesome/capacitor-file-picker';
 import type { WorkProject } from '@/types';
@@ -6,6 +7,8 @@ import {
   syncProjectToSandbox,
   exportFilesToPhone,
   persistTreeUri,
+  pickAndPersistDirectory,
+  verifyTreeAccess,
 } from '@/plugins/project-storage';
 import type { ExportFilesResult, SyncTreeResult } from '@/plugins/project-storage/definitions';
 
@@ -20,6 +23,18 @@ function storagePath(projectId: string, rel: string): string {
 }
 
 export async function pickProjectFolder(): Promise<{ uri: string; label: string }> {
+  // 真机：走原生 SAF，申请可读可写可持久化权限
+  if (Capacitor.isNativePlatform()) {
+    const picked = await pickAndPersistDirectory();
+    const uri = picked.uri?.trim();
+    if (!uri) throw new Error('未选择目录');
+    const access = await verifyTreeAccess(uri);
+    if (!access.ok) {
+      throw new Error('无法读取该文件夹，请重新选择并允许访问');
+    }
+    return { uri, label: picked.label || '项目目录' };
+  }
+
   const result = await FilePicker.pickDirectory();
   const uri = result.path || '';
   if (!uri) {

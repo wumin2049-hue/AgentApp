@@ -26,7 +26,7 @@ async function create() {
 <template>
   <header class="app-header">
     <h1>项目</h1>
-    <div class="sub">每个项目 = 本地目录 + FTP（AI 配置在设置页）</div>
+    <div class="sub">每个项目绑定手机文件夹（需授权读/写/列表）+ FTP</div>
   </header>
   <main class="app-main">
     <div class="card">
@@ -35,8 +35,11 @@ async function create() {
         <input v-model="name" placeholder="例如：官网前端" />
       </div>
       <button class="btn btn-primary btn-block" :disabled="busy" @click="create">
-        {{ busy ? '选择目录中…' : '＋ 新建并选择手机文件夹' }}
+        {{ busy ? '等待授权…' : '＋ 新建并授权手机文件夹' }}
       </button>
+      <p class="hint-text" style="margin-top:10px">
+        弹出系统目录选择器后，请点「使用此文件夹」，否则无法同步与改代码。
+      </p>
       <p v-if="err" class="hint-text err" style="margin-top:10px">{{ err }}</p>
     </div>
 

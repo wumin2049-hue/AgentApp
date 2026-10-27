@@ -113,8 +113,11 @@ jobs:
           if [ ! -f android/gradlew ]; then
             npx cap add android
           fi
+      # sync 可能重置 MainActivity；patch 必须在 sync 之后，确保原生插件注册 + Kotlin 可编译
+      - run: npx cap sync android
       - run: npm run android:patch
       - run: npx cap sync android
+      - run: npm run android:patch
       - run: npm run android:icons
 
       - name: Decode release keystore

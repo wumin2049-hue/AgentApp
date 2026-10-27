@@ -52,6 +52,7 @@ const canSend = computed(
   () =>
     Boolean(project.value) &&
     agentSettings.hasChatStorageRoot &&
+    agentSettings.storageAccessOk &&
     chat.storageReady &&
     agentSettings.isConfigured &&
     Boolean(agentSettings.config.model?.trim()) &&
@@ -62,8 +63,10 @@ const canSend = computed(
 const sendBlockedReason = computed(() => {
   if (busy.value || chat.streaming) return '';
   if (!project.value) return '请先创建并选择项目';
-  if (!agentSettings.hasChatStorageRoot) return '请先在设置中确认数据目录';
-  if (!chat.storageReady) return '会话存储未就绪，请到设置重新选择数据目录';
+  if (!agentSettings.hasChatStorageRoot || !agentSettings.storageAccessOk) {
+    return '请先在设置中选择手机文件夹并允许访问（读/写/列表）';
+  }
+  if (!chat.storageReady) return '会话存储未就绪，请到设置重新授权手机目录';
   if (!agentSettings.isConfigured) return '请先在设置中填写 API 地址与 Key';
   if (!agentSettings.config.model?.trim()) return '请先在设置中选择或填写默认模型';
   return '';
@@ -425,7 +428,16 @@ async function uploadModified() {
   </header>
 
   <main class="app-main chat-main">
-    <div v-if="!agentSettings.isConfigured" class="card card-warn">
+    <div v-if="!agentSettings.hasChatStorageRoot || !agentSettings.storageAccessOk" class="card card-warn">
+      <p class="hint-text" style="margin:0">
+        需要授权手机本地文件夹（读/写/列表）。系统会弹出目录选择器，请点「使用此文件夹」。未授权时无法读写代码与会话。
+      </p>
+      <button class="btn btn-primary btn-block" style="margin-top:12px" type="button" @click="router.push('/settings')">
+        去授权手机目录
+      </button>
+    </div>
+
+    <div v-else-if="!agentSettings.isConfigured" class="card card-warn">
       <p class="hint-text" style="margin:0">尚未配置 AI。请在设置里填写 API 地址与 Key，测试连接后拉取并选择模型。</p>
       <button class="btn btn-primary btn-block" style="margin-top:12px" type="button" @click="router.push('/settings')">
         去设置
@@ -441,10 +453,10 @@ async function uploadModified() {
 
     <div v-else-if="!chat.storageReady && project" class="card card-warn">
       <p class="hint-text" style="margin:0">
-        会话存储未就绪{{ chat.error ? `：${chat.error}` : '' }}。可到设置重新选择数据目录，或使用默认内部存储。
+        会话存储未就绪{{ chat.error ? `：${chat.error}` : '' }}。请重新选择手机目录并允许访问。
       </p>
       <button class="btn btn-primary btn-block" style="margin-top:12px" type="button" @click="router.push('/settings')">
-        去设置数据目录
+        重新授权目录
       </button>
     </div>
 

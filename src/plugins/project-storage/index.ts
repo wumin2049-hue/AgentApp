@@ -4,7 +4,9 @@ import { registerPlugin } from '@capacitor/core';
 import type {
   AgentProjectStoragePlugin,
   ExportFilesResult,
+  PickDirectoryResult,
   SyncTreeResult,
+  VerifyTreeAccessResult,
 } from './definitions';
 
 export const ProjectStorage = registerPlugin<AgentProjectStoragePlugin>('AgentProjectStorage', {
@@ -83,19 +85,38 @@ export async function exportFilesToPhone(
   return ProjectStorage.exportFiles({ treeUri, projectId, paths });
 }
 
+/** 系统选目录并申请读/写/持久化权限（真机必需） */
+export async function pickAndPersistDirectory(): Promise<PickDirectoryResult> {
+  if (!Capacitor.isNativePlatform()) {
+    return ProjectStorage.pickAndPersistDirectory();
+  }
+  return ProjectStorage.pickAndPersistDirectory();
+}
+
 /** 持久化用户选择的 SAF 目录权限 */
-export async function persistTreeUri(treeUri: string): Promise<{ ok: boolean; message?: string }> {
+export async function persistTreeUri(treeUri: string): Promise<{ ok: boolean; canWrite?: boolean; message?: string }> {
   if (!treeUri || isLocalTreeUri(treeUri)) {
-    return { ok: true };
+    return { ok: true, canWrite: true };
   }
   if (!Capacitor.isNativePlatform()) {
-    return { ok: true, message: 'web noop' };
+    return { ok: true, message: 'web noop', canWrite: true };
   }
   try {
     return await ProjectStorage.persistTreeUri({ treeUri });
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/** 校验目录是否仍可读/可列 */
+export async function verifyTreeAccess(treeUri: string): Promise<VerifyTreeAccessResult> {
+  if (!treeUri || isLocalTreeUri(treeUri)) {
+    return { ok: true, canWrite: true, names: [] };
+  }
+  if (!Capacitor.isNativePlatform()) {
+    return { ok: true, canWrite: true, names: [] };
+  }
+  return ProjectStorage.verifyTreeAccess({ treeUri });
 }
 
 export async function writeTreeText(treeUri: string, path: string, data: string): Promise<void> {

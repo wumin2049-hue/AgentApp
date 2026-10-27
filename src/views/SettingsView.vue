@@ -36,9 +36,10 @@ const keyPlaceholder = computed(() =>
 
 const dataRootHint = computed(() => {
   const root = agentSettings.chatStorageRoot;
-  if (!root?.uri) return '未设置';
-  if (isLocalTreeUri(root.uri)) return '应用内部存储（默认，重装 App 会清空）';
-  return `外部目录：${root.label}`;
+  if (!agentSettings.hasChatStorageRoot || !root?.uri) return '未授权（请选择手机文件夹）';
+  if (isLocalTreeUri(root.uri)) return '预览目录（仅 Web）';
+  const access = agentSettings.storageAccessOk ? '已授权读/写/列表' : '授权失效，请重新选择';
+  return `${root.label} · ${access}`;
 });
 
 function syncFormFromStore() {
@@ -118,20 +119,7 @@ async function pickStorageRoot() {
   rootMsg.value = '';
   try {
     const root = await agentSettings.pickChatStorageRoot();
-    rootMsg.value = `已设置外部目录：${root.label}（项目 / API / 模型 / 会话将写入此目录）`;
-  } catch (e) {
-    rootMsg.value = e instanceof Error ? e.message : String(e);
-  } finally {
-    rootBusy.value = false;
-  }
-}
-
-async function resetDefaultRoot() {
-  rootBusy.value = true;
-  rootMsg.value = '';
-  try {
-    await agentSettings.useDefaultDataRoot();
-    rootMsg.value = '已恢复为应用内部存储';
+    rootMsg.value = `已授权：${root.label}（可读取、写入、列出该目录及其子目录）`;
   } catch (e) {
     rootMsg.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -146,30 +134,21 @@ async function resetDefaultRoot() {
     <div class="sub">Harness 接口配置 · 全局生效 · 所有项目共用</div>
   </header>
   <main class="app-main">
-    <div class="card card-premium">
-      <span class="card-title">应用数据目录</span>
+    <div class="card" :class="agentSettings.hasChatStorageRoot && agentSettings.storageAccessOk ? 'card-premium' : 'card-warn'">
+      <span class="card-title">手机数据目录（必选）</span>
       <p class="card-desc">
-        用于保存项目列表、FTP、API/模型配置与会话文件。默认用应用内部存储；也可选手机目录便于备份。
+        必须授权一个手机本地文件夹。系统会弹出目录选择器，请点「使用此文件夹 / 允许」以授予读、写、列表权限；对话改代码、同步项目都依赖此授权。
       </p>
       <p class="hint-text" style="margin:0 0 12px">
         当前：<strong>{{ dataRootHint }}</strong>
       </p>
       <p class="hint-text" style="margin:0 0 12px">
         结构：<code>app/settings.json</code>、<code>app/projects.json</code>、
-        <code>{项目ID}/index.json</code>
+        <code>{项目ID}/…</code>
       </p>
       <div class="btn-row" style="margin-top:0">
         <button class="btn btn-primary" type="button" :disabled="rootBusy" @click="pickStorageRoot">
-          {{ rootBusy ? '选择中…' : '选择手机目录' }}
-        </button>
-        <button
-          v-if="agentSettings.isExternalDataRoot"
-          class="btn btn-ghost"
-          type="button"
-          :disabled="rootBusy"
-          @click="resetDefaultRoot"
-        >
-          用内部存储
+          {{ rootBusy ? '等待授权…' : (agentSettings.hasChatStorageRoot ? '重新选择并授权' : '选择手机文件夹并授权') }}
         </button>
       </div>
       <p

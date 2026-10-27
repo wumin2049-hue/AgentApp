@@ -108,7 +108,20 @@ export class AgentProjectStorageWeb extends WebPlugin implements AgentProjectSto
     }
   }
 
+  async pickAndPersistDirectory(): Promise<{ uri: string; label: string; persisted?: boolean; canWrite?: boolean }> {
+    return {
+      uri: 'local://app-data',
+      label: '本机预览数据目录',
+      persisted: true,
+      canWrite: true,
+    };
+  }
+
   async persistTreeUri(_options: { treeUri: string }): Promise<{ ok: boolean; message?: string }> {
     return { ok: true, message: 'web noop' };
+  }
+
+  async verifyTreeAccess(_options: { treeUri: string }): Promise<{ ok: boolean; canWrite?: boolean; names?: string[] }> {
+    return { ok: true, canWrite: true, names: [] };
   }
 }

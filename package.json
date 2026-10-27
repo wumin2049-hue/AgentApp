@@ -1,6 +1,6 @@
 {
   "name": "mincode",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "private": true,
   "description": "mincode — 移动端 AI 编程助手，多项目本地编辑 + FTP 同步",
   "type": "module",
@@ -14,8 +14,8 @@
     "android:patch": "node scripts/patch-android.mjs",
     "cap:android": "cap open android",
     "cap:add:android": "cap add android",
-    "android:debug": "npm run build && cap sync android && npm run android:icons && cd android && ./gradlew assembleDebug",
-    "android:ci": "npm run build && npx cap add android && npm run android:patch && npx cap sync android && npm run android:icons",
+    "android:debug": "npm run build && npx cap sync android && npm run android:patch && npx cap sync android && npm run android:patch && npm run android:icons && cd android && ./gradlew assembleDebug",
+    "android:ci": "npm run build && npx cap add android && npx cap sync android && npm run android:patch && npx cap sync android && npm run android:patch && npm run android:icons",
     "gh:apk:trigger": "node scripts/gh-apk.mjs trigger",
     "gh:apk:trigger:release": "node scripts/gh-apk.mjs trigger release",
     "gh:apk:watch": "node scripts/gh-apk.mjs watch",
