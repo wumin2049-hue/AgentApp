@@ -107,4 +107,8 @@ export class AgentProjectStorageWeb extends WebPlugin implements AgentProjectSto
       return { names: [] };
     }
   }
+
+  async persistTreeUri(_options: { treeUri: string }): Promise<{ ok: boolean; message?: string }> {
+    return { ok: true, message: 'web noop' };
+  }
 }

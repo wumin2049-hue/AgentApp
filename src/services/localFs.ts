@@ -5,6 +5,7 @@ import {
   listAllSandboxFiles,
   syncProjectToSandbox,
   exportFilesToPhone,
+  persistTreeUri,
 } from '@/plugins/project-storage';
 import type { ExportFilesResult, SyncTreeResult } from '@/plugins/project-storage/definitions';
 
@@ -24,6 +25,7 @@ export async function pickProjectFolder(): Promise<{ uri: string; label: string 
   if (!uri) {
     throw new Error('未选择目录');
   }
+  await persistTreeUri(uri);
   const parts = uri.split('/');
   const label = decodeURIComponent(parts[parts.length - 1] || '项目目录');
   return { uri, label };

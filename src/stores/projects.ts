@@ -3,6 +3,11 @@ import { Preferences } from '@capacitor/preferences';
 import type { WorkProject, FtpConfig } from '@/types';
 import { useAgentSettingsStore } from './agentSettings';
 import { pickProjectFolder, syncProjectFiles } from '@/services/localFs';
+import { persistTreeUri } from '@/plugins/project-storage';
+import {
+  loadProjectsFromDataRoot,
+  saveProjectsToDataRoot,
+} from '@/services/appDataFs';
 
 const STORAGE_KEY = 'abs_work_projects';
 const ACTIVE_KEY = 'abs_active_project_id';
@@ -43,9 +48,25 @@ export const useProjectsStore = defineStore('projects', {
       let projects = raw.value ? (JSON.parse(raw.value) as WorkProject[]) : [];
       const agentStore = useAgentSettingsStore();
       if (!agentStore.loaded) await agentStore.load();
+
+      // Preferences 为空时从数据目录恢复
+      if (!projects.length && agentStore.chatStorageRoot) {
+        const fromDisk = await loadProjectsFromDataRoot(agentStore.chatStorageRoot);
+        if (fromDisk?.projects?.length) {
+          projects = fromDisk.projects;
+          if (fromDisk.activeId) {
+            await Preferences.set({ key: ACTIVE_KEY, value: fromDisk.activeId });
+          }
+        }
+      }
+
       for (const p of projects) {
         if (p.agent?.apiBaseUrl || (p.agent as { baseUrl?: string })?.baseUrl) {
           await agentStore.migrateFromProjectAgent(p.agent);
+        }
+        // 重新确认项目目录 SAF 权限
+        if (p.localRootUri) {
+          void persistTreeUri(p.localRootUri);
         }
       }
       projects = projects.map((p) => {
@@ -61,10 +82,22 @@ export const useProjectsStore = defineStore('projects', {
     async persist() {
       await Preferences.set({ key: STORAGE_KEY, value: JSON.stringify(this.projects) });
       await Preferences.set({ key: ACTIVE_KEY, value: this.activeId });
+      const agentStore = useAgentSettingsStore();
+      if (agentStore.chatStorageRoot?.uri) {
+        try {
+          await saveProjectsToDataRoot(agentStore.chatStorageRoot, {
+            projects: this.projects,
+            activeId: this.activeId,
+          });
+        } catch {
+          /* SAF 失效时 Preferences 仍可用 */
+        }
+      }
     },
 
     async createProject(name: string) {
       const picked = await pickProjectFolder();
+      await persistTreeUri(picked.uri);
       const now = new Date().toISOString();
       const project: WorkProject = {
         id: newId(),
@@ -91,6 +124,9 @@ export const useProjectsStore = defineStore('projects', {
         updatedAt: new Date().toISOString(),
         ftp: { ...this.projects[i].ftp, ...(patch.ftp || {}) },
       };
+      if (patch.localRootUri) {
+        await persistTreeUri(patch.localRootUri);
+      }
       await this.persist();
     },
 
@@ -104,7 +140,7 @@ export const useProjectsStore = defineStore('projects', {
 
     setActive(id: string) {
       this.activeId = id;
-      return Preferences.set({ key: ACTIVE_KEY, value: id });
+      return Preferences.set({ key: ACTIVE_KEY, value: id }).then(() => this.persist());
     },
   },
 });

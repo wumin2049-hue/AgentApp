@@ -93,40 +93,53 @@ export const useChatStore = defineStore('chat', {
         return;
       }
 
-      const root = this.requireStorageRoot();
+      try {
+        const root = this.requireStorageRoot();
 
-      let migrateMessages: ChatMessage[] | undefined;
-      let migrateLastModified: string[] | undefined;
-      const legacy = await Preferences.get({ key: legacyChatKey(projectId) });
-      if (legacy.value) {
-        try {
-          const data = JSON.parse(legacy.value) as {
-            messages?: ChatMessage[];
-            lastModified?: string[];
-          };
-          migrateMessages = data.messages || [];
-          migrateLastModified = data.lastModified || [];
-        } catch {
-          /* ignore */
+        let migrateMessages: ChatMessage[] | undefined;
+        let migrateLastModified: string[] | undefined;
+        const legacy = await Preferences.get({ key: legacyChatKey(projectId) });
+        if (legacy.value) {
+          try {
+            const data = JSON.parse(legacy.value) as {
+              messages?: ChatMessage[];
+              lastModified?: string[];
+            };
+            migrateMessages = data.messages || [];
+            migrateLastModified = data.lastModified || [];
+          } catch {
+            /* ignore */
+          }
         }
+
+        const { index, data } = await ensureProjectSessions(
+          root,
+          projectId,
+          migrateMessages,
+          migrateLastModified,
+        );
+
+        if (legacy.value && migrateMessages?.length) {
+          await Preferences.remove({ key: legacyChatKey(projectId) });
+        }
+
+        this.applyIndex(index);
+        this.messages = data.messages;
+        this.lastModified = data.lastModified;
+        this.harnessDigest = digestFromSession(data, projectId, this.sessionId);
+        this.storageReady = true;
+      } catch (e) {
+        this.sessions = [];
+        this.sessionId = '';
+        this.messages = [];
+        this.lastModified = [];
+        this.harnessDigest = emptyDigest();
+        this.storageReady = false;
+        this.error =
+          e instanceof Error
+            ? `会话存储不可用：${e.message}。请到设置重新选择数据目录。`
+            : String(e);
       }
-
-      const { index, data } = await ensureProjectSessions(
-        root,
-        projectId,
-        migrateMessages,
-        migrateLastModified,
-      );
-
-      if (legacy.value && migrateMessages?.length) {
-        await Preferences.remove({ key: legacyChatKey(projectId) });
-      }
-
-      this.applyIndex(index);
-      this.messages = data.messages;
-      this.lastModified = data.lastModified;
-      this.harnessDigest = digestFromSession(data, projectId, this.sessionId);
-      this.storageReady = true;
     },
 
     applyIndex(index: ProjectSessionIndex) {

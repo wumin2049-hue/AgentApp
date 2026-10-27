@@ -1,5 +1,6 @@
 import type { AgentServerConfig } from '@/types';
 import type { AgentModelRow } from '@/stores/agentSettings';
+import { nativeHttpRequest, nativeToFetchResponse, useNativeHttp } from '@/api/nativeHttp';
 
 export interface ConnectionTestResult {
   ok: boolean;
@@ -45,17 +46,22 @@ function upstreamHeaders(cfg: AgentServerConfig, extra: Record<string, string> =
 
 function fetchErrorHint(url: string, err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
-  if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+  if (/failed to fetch|networkerror|load failed|unable to resolve|connection/i.test(msg)) {
     return (
-      `网络请求失败（Failed to fetch）。\n` +
+      `网络请求失败（${msg}）。\n` +
       `· 检查 API 地址与 Key 是否正确\n` +
       `· 确认手机能访问该 API 域名\n` +
+      `· App 已走原生 HTTP（绕过 CORS）\n` +
       `· 可先浏览器打开：${url}`
     );
   }
   return msg;
 }
 
+/**
+ * 上游请求：原生平台用 CapacitorHttp（绕过 WebView CORS），
+ * Web 预览仍用 fetch。
+ */
 async function upstreamFetch(
   cfg: AgentServerConfig,
   path: string,
@@ -67,13 +73,26 @@ async function upstreamFetch(
 
   const rel = path.replace(/^\/+/, '');
   let lastErr = '请求失败';
+  const headers = upstreamHeaders(cfg, (init.headers as Record<string, string>) || {});
+  const method = (init.method || 'GET').toUpperCase();
+  const body = typeof init.body === 'string' ? init.body : undefined;
+  const signal = init.signal ?? undefined;
 
   for (const base of bases) {
     const url = `${base}/${rel}`;
     try {
+      if (useNativeHttp()) {
+        const native = await nativeHttpRequest(url, { method, headers, body, signal });
+        if (native.status === 404 && bases.length > 1) {
+          lastErr = `HTTP 404 @ ${url}`;
+          continue;
+        }
+        return nativeToFetchResponse(native);
+      }
+
       const res = await fetch(url, {
         ...init,
-        headers: upstreamHeaders(cfg, (init.headers as Record<string, string>) || {}),
+        headers,
       });
       if (res.status === 404 && bases.length > 1) {
         lastErr = `HTTP 404 @ ${url}`;
@@ -81,6 +100,7 @@ async function upstreamFetch(
       }
       return res;
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') throw e;
       lastErr = fetchErrorHint(url, e);
     }
   }
@@ -118,6 +138,9 @@ export async function testAgentConnection(cfg: AgentServerConfig): Promise<Conne
 
   const session = { ...cfg, apiBaseUrl: base };
   steps.push(`✓ API 地址：${base}`);
+  if (useNativeHttp()) {
+    steps.push('✓ 使用原生 HTTP（绕过 CORS）');
+  }
 
   const res = await upstreamFetch(session, 'models');
   const text = await res.text();
@@ -298,6 +321,13 @@ export async function chatTurnStream(
   },
   onDelta: (content: string, reasoning: string) => void,
 ): Promise<ChatTurnResult> {
+  // 原生 HTTP 不支持真正的 SSE 流，直接走非流式并在结束时回调一次
+  if (useNativeHttp()) {
+    const result = await chatTurn(cfg, messages, tools, opts);
+    onDelta(result.content, result.reasoning || '');
+    return result;
+  }
+
   const session = { ...cfg, apiBaseUrl: normalizeApiBaseUrl(cfg.apiBaseUrl) };
   const payload = {
     model: opts.model,

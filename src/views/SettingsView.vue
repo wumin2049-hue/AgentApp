@@ -7,6 +7,7 @@ import {
   normalizeApiBaseUrl,
 } from '@/api/agentServer';
 import { APP_VERSION } from '@/version';
+import { isLocalTreeUri } from '@/plugins/project-storage';
 
 const agentSettings = useAgentSettingsStore();
 const version = APP_VERSION;
@@ -32,6 +33,13 @@ const rootBusy = ref(false);
 const keyPlaceholder = computed(() =>
   agentSettings.apiKeyMask ? `已保存 ${agentSettings.apiKeyMask}` : 'sk-…',
 );
+
+const dataRootHint = computed(() => {
+  const root = agentSettings.chatStorageRoot;
+  if (!root?.uri) return '未设置';
+  if (isLocalTreeUri(root.uri)) return '应用内部存储（默认，重装 App 会清空）';
+  return `外部目录：${root.label}`;
+});
 
 function syncFormFromStore() {
   const c = agentSettings.config;
@@ -110,7 +118,20 @@ async function pickStorageRoot() {
   rootMsg.value = '';
   try {
     const root = await agentSettings.pickChatStorageRoot();
-    rootMsg.value = `已设置：${root.label}`;
+    rootMsg.value = `已设置外部目录：${root.label}（项目 / API / 模型 / 会话将写入此目录）`;
+  } catch (e) {
+    rootMsg.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    rootBusy.value = false;
+  }
+}
+
+async function resetDefaultRoot() {
+  rootBusy.value = true;
+  rootMsg.value = '';
+  try {
+    await agentSettings.useDefaultDataRoot();
+    rootMsg.value = '已恢复为应用内部存储';
   } catch (e) {
     rootMsg.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -125,39 +146,40 @@ async function pickStorageRoot() {
     <div class="sub">Harness 接口配置 · 全局生效 · 所有项目共用</div>
   </header>
   <main class="app-main">
-    <div class="card card-warn" v-if="!agentSettings.hasChatStorageRoot">
-      <span class="card-title">会话存储目录（必填）</span>
+    <div class="card card-premium">
+      <span class="card-title">应用数据目录</span>
       <p class="card-desc">
-        会话以目录+文件保存（每项目一份 index.json，每个会话独立 messages.json）。必须先选择手机上的总目录。
+        用于保存项目列表、FTP、API/模型配置与会话文件。默认用应用内部存储；也可选手机目录便于备份。
       </p>
-      <button class="btn btn-primary btn-block" type="button" :disabled="rootBusy" @click="pickStorageRoot">
-        {{ rootBusy ? '选择中…' : '选择会话存储总目录' }}
-      </button>
+      <p class="hint-text" style="margin:0 0 12px">
+        当前：<strong>{{ dataRootHint }}</strong>
+      </p>
+      <p class="hint-text" style="margin:0 0 12px">
+        结构：<code>app/settings.json</code>、<code>app/projects.json</code>、
+        <code>{项目ID}/index.json</code>
+      </p>
+      <div class="btn-row" style="margin-top:0">
+        <button class="btn btn-primary" type="button" :disabled="rootBusy" @click="pickStorageRoot">
+          {{ rootBusy ? '选择中…' : '选择手机目录' }}
+        </button>
+        <button
+          v-if="agentSettings.isExternalDataRoot"
+          class="btn btn-ghost"
+          type="button"
+          :disabled="rootBusy"
+          @click="resetDefaultRoot"
+        >
+          用内部存储
+        </button>
+      </div>
       <p
         v-if="rootMsg"
         class="hint-text"
-        :class="rootMsg.startsWith('已设置') ? 'ok' : 'err'"
+        :class="rootMsg.startsWith('已') ? 'ok' : 'err'"
         style="margin-top:10px"
       >
         {{ rootMsg }}
       </p>
-    </div>
-
-    <div class="card card-premium" v-else>
-      <span class="card-title">会话存储目录</span>
-      <p class="card-desc">
-        当前总目录：<strong>{{ agentSettings.chatStorageRoot?.label }}</strong>
-      </p>
-      <p class="hint-text" style="margin:0 0 12px">
-        结构：<code>{目录}/{项目ID}/index.json</code> 与
-        <code>{目录}/{项目ID}/{会话ID}/messages.json</code>
-      </p>
-      <div class="btn-row" style="margin-top:0">
-        <button class="btn btn-primary" type="button" :disabled="rootBusy" @click="pickStorageRoot">
-          {{ rootBusy ? '选择中…' : '更换目录' }}
-        </button>
-      </div>
-      <p v-if="rootMsg" class="hint-text ok" style="margin-top:10px">{{ rootMsg }}</p>
     </div>
 
     <div class="card card-premium">
@@ -188,7 +210,9 @@ async function pickStorageRoot() {
         </button>
         <button class="btn btn-ghost" @click="save">保存</button>
       </div>
-      <p v-if="saveMsg" class="hint-text ok" style="margin-top:10px">{{ saveMsg }}</p>
+      <p v-if="saveMsg" class="hint-text" :class="saveMsg.startsWith('已') || saveMsg.includes('拉取') ? 'ok' : 'err'" style="margin-top:10px">
+        {{ saveMsg }}
+      </p>
       <p
         v-if="testMsg"
         class="hint-text"
@@ -254,9 +278,9 @@ async function pickStorageRoot() {
 
     <div class="card">
       <span class="card-title">关于</span>
-      <p class="hint-text" style="margin:0">mincode v{{ version }} · 工具本地执行 · 模型直连上游 API</p>
+      <p class="hint-text" style="margin:0">mincode v{{ version }} · 工具本地执行 · 模型经原生 HTTP 直连上游</p>
       <p class="hint-text" style="margin:8px 0 0">
-        凭据保存在本机 Preferences；已关闭 Android 系统备份以降低泄露风险。局域网 HTTP/FTP 为有意开启。
+        配置同时写入 Preferences 与数据目录；外部目录会申请持久权限，避免重开后失效。
       </p>
     </div>
   </main>

@@ -1,4 +1,6 @@
 import { Preferences } from '@capacitor/preferences';
+import { useAgentSettingsStore } from '@/stores/agentSettings';
+import { loadFtpStateFromDataRoot, saveFtpStateToDataRoot } from '@/services/appDataFs';
 
 const KEY = 'abs_ftp_browser_state';
 
@@ -10,27 +12,46 @@ export interface FtpBrowserState {
 
 type StateMap = Record<string, FtpBrowserState>;
 
-export async function loadFtpState(projectId: string): Promise<FtpBrowserState | null> {
+async function readMap(): Promise<StateMap> {
   const raw = await Preferences.get({ key: KEY });
-  if (!raw.value) return null;
+  if (!raw.value) {
+    try {
+      const settings = useAgentSettingsStore();
+      if (settings.chatStorageRoot) {
+        const fromDisk = await loadFtpStateFromDataRoot(settings.chatStorageRoot);
+        if (fromDisk) return fromDisk;
+      }
+    } catch {
+      /* pinia 未就绪 */
+    }
+    return {};
+  }
   try {
-    const map = JSON.parse(raw.value) as StateMap;
-    return map[projectId] || null;
+    return JSON.parse(raw.value) as StateMap;
   } catch {
-    return null;
+    return {};
   }
 }
 
-export async function saveFtpState(projectId: string, state: FtpBrowserState): Promise<void> {
-  const raw = await Preferences.get({ key: KEY });
-  let map: StateMap = {};
-  if (raw.value) {
-    try {
-      map = JSON.parse(raw.value) as StateMap;
-    } catch {
-      map = {};
-    }
-  }
-  map[projectId] = state;
+async function writeMap(map: StateMap): Promise<void> {
   await Preferences.set({ key: KEY, value: JSON.stringify(map) });
+  try {
+    const settings = useAgentSettingsStore();
+    if (settings.chatStorageRoot?.uri) {
+      await saveFtpStateToDataRoot(settings.chatStorageRoot, map);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function loadFtpState(projectId: string): Promise<FtpBrowserState | null> {
+  const map = await readMap();
+  return map[projectId] || null;
+}
+
+export async function saveFtpState(projectId: string, state: FtpBrowserState): Promise<void> {
+  const map = await readMap();
+  map[projectId] = state;
+  await writeMap(map);
 }

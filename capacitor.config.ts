@@ -10,6 +10,12 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: true,
   },
+  // 不全局 patch fetch（会破坏 SSE）；上游请求在代码里显式走 CapacitorHttp
+  plugins: {
+    CapacitorHttp: {
+      enabled: false,
+    },
+  },
 };
 
 export default config;

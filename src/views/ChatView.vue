@@ -53,9 +53,21 @@ const canSend = computed(
     Boolean(project.value) &&
     agentSettings.hasChatStorageRoot &&
     chat.storageReady &&
+    agentSettings.isConfigured &&
+    Boolean(agentSettings.config.model?.trim()) &&
     !busy.value &&
     !chat.streaming,
 );
+
+const sendBlockedReason = computed(() => {
+  if (busy.value || chat.streaming) return '';
+  if (!project.value) return '请先创建并选择项目';
+  if (!agentSettings.hasChatStorageRoot) return '请先在设置中确认数据目录';
+  if (!chat.storageReady) return '会话存储未就绪，请到设置重新选择数据目录';
+  if (!agentSettings.isConfigured) return '请先在设置中填写 API 地址与 Key';
+  if (!agentSettings.config.model?.trim()) return '请先在设置中选择或填写默认模型';
+  return '';
+});
 
 const inputLocked = computed(() => busy.value || chat.streaming);
 
@@ -413,19 +425,26 @@ async function uploadModified() {
   </header>
 
   <main class="app-main chat-main">
-    <div v-if="!agentSettings.hasChatStorageRoot" class="card card-warn">
-      <p class="hint-text" style="margin:0">
-        会话以目录+文件形式保存。请先在设置里选择<strong>会话数据存储总目录</strong>，否则无法开始对话。
-      </p>
-      <button class="btn btn-primary btn-block" style="margin-top:12px" type="button" @click="router.push('/settings')">
-        去设置存储目录
-      </button>
-    </div>
-
-    <div v-else-if="!agentSettings.isConfigured" class="card card-warn">
+    <div v-if="!agentSettings.isConfigured" class="card card-warn">
       <p class="hint-text" style="margin:0">尚未配置 AI。请在设置里填写 API 地址与 Key，测试连接后拉取并选择模型。</p>
       <button class="btn btn-primary btn-block" style="margin-top:12px" type="button" @click="router.push('/settings')">
         去设置
+      </button>
+    </div>
+
+    <div v-else-if="!agentSettings.config.model?.trim()" class="card card-warn">
+      <p class="hint-text" style="margin:0">已配置 API，但还没选默认模型。请到设置拉取模型列表并点选一个。</p>
+      <button class="btn btn-primary btn-block" style="margin-top:12px" type="button" @click="router.push('/settings')">
+        去选择模型
+      </button>
+    </div>
+
+    <div v-else-if="!chat.storageReady && project" class="card card-warn">
+      <p class="hint-text" style="margin:0">
+        会话存储未就绪{{ chat.error ? `：${chat.error}` : '' }}。可到设置重新选择数据目录，或使用默认内部存储。
+      </p>
+      <button class="btn btn-primary btn-block" style="margin-top:12px" type="button" @click="router.push('/settings')">
+        去设置数据目录
       </button>
     </div>
 
@@ -556,11 +575,15 @@ async function uploadModified() {
           v-else
           class="btn btn-primary"
           :disabled="!canSend || !input.trim()"
+          :title="sendBlockedReason || '发送'"
           @click="send"
         >
           发送
         </button>
       </div>
+      <p v-if="sendBlockedReason && input.trim()" class="hint-text err" style="margin:6px 4px 0;font-size:12px">
+        {{ sendBlockedReason }}
+      </p>
     </div>
   </div>
 

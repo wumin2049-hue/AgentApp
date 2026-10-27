@@ -1,5 +1,6 @@
 package com.abs.agentapp
 
+import android.content.Intent
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -34,6 +35,34 @@ class ProjectStoragePlugin : Plugin() {
 
     private fun sandboxRoot(projectId: String): File {
         return File(context.filesDir, "agent-app/projects/$projectId").apply { mkdirs() }
+    }
+
+    /**
+     * 持久化 SAF 目录访问权限，否则杀进程/重开 App 后 URI 失效，表现为「数据丢失」。
+     */
+    @PluginMethod
+    fun persistTreeUri(call: PluginCall) {
+        val treeUri = call.getString("treeUri") ?: ""
+        if (treeUri.isEmpty()) {
+            call.reject("treeUri required")
+            return
+        }
+        try {
+            val uri = Uri.parse(treeUri)
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            context.contentResolver.takePersistableUriPermission(uri, flags)
+            val ret = JSObject()
+            ret.put("ok", true)
+            call.resolve(ret)
+        } catch (e: SecurityException) {
+            // 部分 ROM / 已持久化过时可能抛异常，不阻断主流程
+            val ret = JSObject()
+            ret.put("ok", false)
+            ret.put("message", e.message ?: "persist skipped")
+            call.resolve(ret)
+        } catch (e: Exception) {
+            call.reject(e.message ?: "persistTreeUri failed")
+        }
     }
 
     private fun getOrCreateDir(root: DocumentFile, parts: List<String>): DocumentFile? {

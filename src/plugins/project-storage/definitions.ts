@@ -57,4 +57,6 @@ export interface AgentProjectStoragePlugin {
   deleteTreePath(options: TreeTextOptions): Promise<void>;
   /** 列出 SAF 树某目录下的直接子项名称 */
   listTreeDir(options: TreeTextOptions): Promise<TreeListResult>;
+  /** 持久化 SAF 目录读写权限（杀进程后仍可访问） */
+  persistTreeUri(options: { treeUri: string }): Promise<{ ok: boolean; message?: string }>;
 }
