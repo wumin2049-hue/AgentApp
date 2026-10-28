@@ -1,6 +1,6 @@
 {
   "name": "mincode",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "private": true,
   "description": "mincode — 移动端 AI 编程助手，多项目本地编辑 + FTP 同步",
   "type": "module",
