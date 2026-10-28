@@ -40,6 +40,36 @@ const messagesEndEl = ref<HTMLElement | null>(null);
 const sessionListCollapsed = ref(true);
 const abortCtl = ref<AbortController | null>(null);
 const dockPad = ref(0);
+const toolDetailOpen = ref(false);
+const modifiedSheetOpen = ref(false);
+const selectedModified = ref<string[]>([]);
+const ftpProgress = ref('');
+const ftpUploading = ref(false);
+
+const lastAssistantId = computed(() => {
+  for (let i = chat.messages.length - 1; i >= 0; i--) {
+    if (chat.messages[i].role === 'assistant') return chat.messages[i].id;
+  }
+  return '';
+});
+
+const turnModifiedList = computed(() => {
+  if (chat.turnModifiedFiles.length) return chat.turnModifiedFiles;
+  // 流式过程中从工具日志推断写文件
+  return [
+    ...new Set(
+      chat.toolLog
+        .filter((t) => t.ok && (t.name === 'write_file' || t.name === 'search_replace') && t.path)
+        .map((t) => t.path as string),
+    ),
+  ];
+});
+
+const allModifiedSelected = computed(
+  () =>
+    turnModifiedList.value.length > 0 &&
+    turnModifiedList.value.every((f) => selectedModified.value.includes(f)),
+);
 
 const project = computed(() =>
   projects.projects.find((p) => p.id === selectedId.value) || projects.active,
@@ -235,7 +265,7 @@ onMounted(async () => {
     workRootInput.value = chat.workRoot;
   }
   await loadTopDirs();
-  window.addEventListener('keydown', onProjectSheetKeydown);
+  window.addEventListener('keydown', onGlobalKeydown);
   window.visualViewport?.addEventListener('resize', onViewportResize);
   window.visualViewport?.addEventListener('scroll', onViewportResize);
   focusChatInput();
@@ -243,7 +273,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', onProjectSheetKeydown);
+  window.removeEventListener('keydown', onGlobalKeydown);
   window.visualViewport?.removeEventListener('resize', onViewportResize);
   window.visualViewport?.removeEventListener('scroll', onViewportResize);
   document.body.style.overflow = '';
@@ -415,6 +445,104 @@ async function uploadModified() {
     uploadBusy.value = false;
   }
 }
+
+function openToolDetail() {
+  toolDetailOpen.value = true;
+  document.body.style.overflow = 'hidden';
+}
+
+function closeToolDetail() {
+  toolDetailOpen.value = false;
+  document.body.style.overflow = '';
+}
+
+function openModifiedSheet() {
+  selectedModified.value = [...turnModifiedList.value];
+  ftpProgress.value = '';
+  modifiedSheetOpen.value = true;
+  document.body.style.overflow = 'hidden';
+}
+
+function closeModifiedSheet() {
+  if (ftpUploading.value) return;
+  modifiedSheetOpen.value = false;
+  document.body.style.overflow = '';
+}
+
+function toggleSelectAll() {
+  if (allModifiedSelected.value) {
+    selectedModified.value = [];
+  } else {
+    selectedModified.value = [...turnModifiedList.value];
+  }
+}
+
+function toggleModifiedFile(path: string) {
+  const i = selectedModified.value.indexOf(path);
+  if (i >= 0) selectedModified.value.splice(i, 1);
+  else selectedModified.value.push(path);
+}
+
+async function uploadSelectedToFtp() {
+  if (!project.value || ftpUploading.value) return;
+  const files = selectedModified.value.filter(Boolean);
+  if (!files.length) {
+    ftpProgress.value = '请至少勾选一个文件';
+    return;
+  }
+  if (!project.value.ftp?.host?.trim()) {
+    ftpProgress.value = '请先在项目设置中配置 FTP';
+    return;
+  }
+
+  ftpUploading.value = true;
+  ftpProgress.value = `准备上传 0/${files.length}…`;
+  const done: string[] = [];
+  const failed: string[] = [];
+
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const rel = files[i];
+      ftpProgress.value = `正在上传 ${i + 1}/${files.length}：${rel}`;
+      try {
+        const batch = await ftpUploadModifiedProject(project.value, [rel]);
+        if (batch.includes(rel)) {
+          done.push(rel);
+        } else {
+          failed.push(rel);
+        }
+      } catch {
+        failed.push(rel);
+      }
+    }
+    if (done.length) {
+      await removeModifiedFiles(project.value.id, done);
+      chat.removeTurnModified(done);
+      selectedModified.value = selectedModified.value.filter((f) => !done.includes(f));
+    }
+    ftpProgress.value = failed.length
+      ? `完成：成功 ${done.length}，失败 ${failed.length}（${failed.join('、')}）`
+      : `全部上传成功（${done.length}）`;
+    uploadMsg.value = ftpProgress.value;
+  } catch (e) {
+    ftpProgress.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    ftpUploading.value = false;
+  }
+}
+
+function onGlobalKeydown(e: KeyboardEvent) {
+  onProjectSheetKeydown(e);
+  if (e.key === 'Escape') {
+    if (modifiedSheetOpen.value) {
+      e.preventDefault();
+      closeModifiedSheet();
+    } else if (toolDetailOpen.value) {
+      e.preventDefault();
+      closeToolDetail();
+    }
+  }
+}
 </script>
 
 <template>
@@ -524,14 +652,47 @@ async function uploadModified() {
       提示：会话消息接近上限（{{ chat.messageCap }} 条），更早的消息保存时可能被截断。
     </p>
 
-    <ChatMessage
-      v-for="m in chat.messages"
-      :key="m.id"
-      :message="m"
-      :streaming="chat.streaming && m.role === 'assistant' && !m.content"
-      :deletable="!busy && !chat.streaming && agentSettings.hasChatStorageRoot"
-      @delete="onDeleteMessage"
-    />
+    <template v-for="m in chat.messages" :key="m.id">
+      <!-- 工具/读文件记录：放在最终 AI 回复气泡之上 -->
+      <div
+        v-if="m.id === lastAssistantId && chat.toolLog.length"
+        class="tool-log-panel"
+      >
+        <div class="tool-log-head">
+          <span class="tool-log-title">读取与工具记录 · {{ chat.toolLog.length }}</span>
+        </div>
+        <div class="tool-log-scroll">
+          <div
+            v-for="(t, i) in chat.toolLog"
+            :key="i"
+            class="tool-line"
+            :class="t.ok ? 'ok' : 'fail'"
+          >
+            {{ t.ok ? '✓' : '✕' }} {{ t.label }}
+          </div>
+        </div>
+        <button type="button" class="tool-log-detail" @click="openToolDetail">
+          查看详情
+        </button>
+      </div>
+
+      <ChatMessage
+        :message="m"
+        :streaming="chat.streaming && m.role === 'assistant' && !m.content"
+        :deletable="!busy && !chat.streaming && agentSettings.hasChatStorageRoot"
+        @delete="onDeleteMessage"
+      />
+
+      <!-- 最终回复下方：查看本轮修改文件 -->
+      <div
+        v-if="m.id === lastAssistantId && turnModifiedList.length && !chat.streaming"
+        class="turn-modified-bar"
+      >
+        <button type="button" class="btn btn-ghost btn-block" @click="openModifiedSheet">
+          查看 AI 实际修改的文件（{{ turnModifiedList.length }}）
+        </button>
+      </div>
+    </template>
 
     <p v-if="statusMsg" class="status-line">{{ statusMsg }}</p>
     <button
@@ -543,18 +704,6 @@ async function uploadModified() {
     >
       停止生成
     </button>
-
-    <div v-if="chat.toolLog.length" class="tool-card">
-      <span class="card-title">工具轨迹</span>
-      <div
-        v-for="(t, i) in chat.toolLog"
-        :key="i"
-        class="tool-line"
-        :class="t.ok ? 'ok' : 'fail'"
-      >
-        {{ t.ok ? '✓' : '✕' }} {{ t.label }}
-      </div>
-    </div>
 
     <p v-if="chat.error" class="hint-text err">{{ chat.error }}</p>
     <div ref="messagesEndEl" aria-hidden="true" />
@@ -726,6 +875,97 @@ async function uploadModified() {
           <p v-if="uploadMsg" class="hint-text ok" style="margin-top:8px">{{ uploadMsg }}</p>
           <p v-if="exportMsg" class="hint-text ok" style="margin-top:8px">{{ exportMsg }}</p>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 工具记录详情 -->
+  <div
+    v-if="toolDetailOpen"
+    class="sheet-overlay"
+    @click.self="closeToolDetail"
+  >
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="工具记录详情">
+      <div class="sheet-header">
+        <strong>读取与工具记录</strong>
+        <button type="button" class="btn btn-ghost btn-sm" @click="closeToolDetail">关闭</button>
+      </div>
+      <div class="sheet-body">
+        <div
+          v-for="(t, i) in chat.toolLog"
+          :key="i"
+          class="tool-detail-line"
+          :class="t.ok ? 'ok' : 'fail'"
+        >
+          <div class="tool-detail-name">{{ t.ok ? '✓' : '✕' }} {{ t.name }}</div>
+          <div class="tool-detail-label">{{ t.label }}</div>
+          <div v-if="t.path" class="tool-detail-path">{{ t.path }}</div>
+        </div>
+        <p v-if="!chat.toolLog.length" class="hint-text">暂无记录</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 本轮修改文件 + FTP 上传 -->
+  <div
+    v-if="modifiedSheetOpen"
+    class="sheet-overlay"
+    @click.self="closeModifiedSheet"
+  >
+    <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="AI 修改的文件">
+      <div class="sheet-header">
+        <strong>AI 修改的文件</strong>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          :disabled="ftpUploading"
+          @click="closeModifiedSheet"
+        >
+          关闭
+        </button>
+      </div>
+      <div class="sheet-body">
+        <div class="modified-toolbar">
+          <label class="modified-check-all">
+            <input
+              type="checkbox"
+              :checked="allModifiedSelected"
+              :disabled="ftpUploading"
+              @change="toggleSelectAll"
+            />
+            全选 / 取消全选
+          </label>
+          <span class="hint-text" style="margin:0">
+            已选 {{ selectedModified.length }}/{{ turnModifiedList.length }}
+          </span>
+        </div>
+
+        <ul class="modified-list">
+          <li v-for="f in turnModifiedList" :key="f" class="modified-item">
+            <label>
+              <input
+                type="checkbox"
+                :checked="selectedModified.includes(f)"
+                :disabled="ftpUploading"
+                @change="toggleModifiedFile(f)"
+              />
+              <span class="modified-path">{{ f }}</span>
+            </label>
+          </li>
+        </ul>
+
+        <button
+          type="button"
+          class="btn btn-primary btn-block"
+          style="margin-top:14px"
+          :disabled="ftpUploading || !selectedModified.length"
+          @click="uploadSelectedToFtp"
+        >
+          {{ ftpUploading ? '上传中…' : '一键上传 FTP' }}
+        </button>
+        <p v-if="ftpProgress" class="hint-text" style="margin-top:10px;white-space:pre-wrap">
+          {{ ftpProgress }}
+        </p>
       </div>
     </div>
   </div>

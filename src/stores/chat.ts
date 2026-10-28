@@ -44,6 +44,8 @@ export const useChatStore = defineStore('chat', {
     streaming: false,
     toolLog: [] as ToolLogEntry[],
     lastModified: [] as string[],
+    /** 本轮 AI 实际改动的文件（用于回复下方弹窗） */
+    turnModifiedFiles: [] as string[],
     harnessDigest: emptyDigest() as HarnessDigest,
     error: '' as string,
     storageReady: false as boolean,
@@ -76,6 +78,7 @@ export const useChatStore = defineStore('chat', {
 
       this.projectId = projectId;
       this.toolLog = [];
+      this.turnModifiedFiles = [];
       this.error = '';
       this.storageReady = false;
 
@@ -296,6 +299,7 @@ export const useChatStore = defineStore('chat', {
 
     clearTurn() {
       this.toolLog = [];
+      this.turnModifiedFiles = [];
       this.error = '';
     },
 
@@ -339,6 +343,7 @@ export const useChatStore = defineStore('chat', {
 
     applyResult(result: AgentTurnResult, assistantId?: string) {
       this.toolLog = result.toolLog;
+      this.turnModifiedFiles = [...(result.modifiedFiles || [])];
       // 累计本轮修改到会话 lastModified，避免覆盖历史轮次
       const merged = new Set([...this.lastModified, ...result.modifiedFiles]);
       this.lastModified = [...merged];
@@ -353,6 +358,13 @@ export const useChatStore = defineStore('chat', {
       } else {
         this.pushAssistant(result.content, result.reasoning);
       }
+    },
+
+    removeTurnModified(paths: string[]) {
+      if (!paths.length) return;
+      const drop = new Set(paths);
+      this.turnModifiedFiles = this.turnModifiedFiles.filter((f) => !drop.has(f));
+      this.lastModified = this.lastModified.filter((f) => !drop.has(f));
     },
 
     setStreaming(v: boolean) {

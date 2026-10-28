@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { ChatMessage } from '@/types';
-import { parseMessageParts } from '@/utils/messageContent';
+import { renderMarkdown } from '@/utils/markdown';
 
 const props = defineProps<{
   message: ChatMessage;
@@ -13,13 +13,37 @@ const emit = defineEmits<{
   delete: [id: string];
 }>();
 
-const parts = computed(() =>
-  props.message.role === 'assistant' ? parseMessageParts(props.message.content) : [],
+const html = computed(() =>
+  props.message.role === 'assistant' && props.message.content
+    ? renderMarkdown(props.message.content)
+    : '',
 );
 
 function onDelete() {
   if (!props.deletable) return;
   emit('delete', props.message.id);
+}
+
+async function onMdClick(e: MouseEvent) {
+  const btn = (e.target as HTMLElement | null)?.closest?.('[data-act="copy-code"]') as
+    | HTMLButtonElement
+    | null;
+  if (!btn) return;
+  e.preventDefault();
+  const block = btn.closest('.code-block');
+  const code = block?.querySelector('code')?.textContent || '';
+  try {
+    await navigator.clipboard.writeText(code);
+    btn.classList.add('done');
+    const prev = btn.textContent;
+    btn.textContent = '已复制';
+    window.setTimeout(() => {
+      btn.classList.remove('done');
+      btn.textContent = prev || '复制';
+    }, 1400);
+  } catch {
+    btn.textContent = '失败';
+  }
 }
 </script>
 
@@ -43,16 +67,12 @@ function onDelete() {
         <pre>{{ message.reasoning }}</pre>
       </details>
 
-      <template v-if="message.content">
-        <template v-for="(p, i) in parts" :key="i">
-          <span v-if="p.type === 'text'" class="msg-text">{{ p.text }}</span>
-          <figure v-else-if="p.type === 'image'" class="msg-figure">
-            <img :src="p.url" :alt="p.alt" loading="lazy" />
-            <figcaption v-if="p.alt">{{ p.alt }}</figcaption>
-          </figure>
-          <a v-else :href="p.url" target="_blank" rel="noopener" class="msg-link">{{ p.url }}</a>
-        </template>
-      </template>
+      <div
+        v-if="html"
+        class="md"
+        v-html="html"
+        @click="onMdClick"
+      />
       <span v-else-if="streaming" class="msg-placeholder">…</span>
     </div>
     <button
