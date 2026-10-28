@@ -4,31 +4,40 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="light" />
-  <meta name="theme-color" content="#faf7f2" />
+  <meta name="theme-color" content="#e8f1fc" />
   <title>编辑项目</title>
   <link rel="stylesheet" href="assets/app.css" />
 </head>
 <body>
   <div class="app-shell">
-    <div class="preview-banner">静态 HTML 预览 · 暖白主题</div>
+    <div class="preview-banner">静态 HTML 预览 · 浅蓝科技主题</div>
 
     <header class="app-header">
       <h1>编辑项目</h1>
-      <div class="sub">📁 Documents/www</div>
+      <div class="sub"><span aria-hidden="true">📁</span> Documents/www</div>
+      <div class="sub">
+        <a href="projects.html" class="btn-link">← 返回项目列表</a>
+      </div>
     </header>
 
     <main class="app-main">
       <div class="card">
-        <span class="card-title">项目名称</span>
+        <span class="card-title">项目信息</span>
         <div class="field"><label>名称</label><input type="text" value="官网前端" /></div>
-        <p class="hint-text" style="margin:10px 0 0">AI 与模型配置已移至底部「设置」页，所有项目共用。</p>
+        <p class="hint-text" style="margin:0">
+          AI 模型与 Agent 地址在
+          <a href="settings.html">全局设置</a>
+          中配置，所有项目共用。
+        </p>
       </div>
 
       <div class="card">
         <span class="card-title">本地目录</span>
-        <p class="card-meta">📁 Documents/www · 沙盒内 128 个文件</p>
+        <p class="card-meta">
+          <span aria-hidden="true">📁</span> Documents/www · 沙盒内 128 个文件
+        </p>
         <button class="btn btn-ghost btn-block" type="button">↻ 同步到 App 沙盒</button>
-        <button class="btn btn-ghost btn-block" type="button">📱 写回修改到手机（3）</button>
+        <button class="btn btn-ghost btn-block" type="button">写回修改到手机（3）</button>
       </div>
 
       <div class="card">
@@ -37,13 +46,23 @@
         <div class="field"><label>端口</label><input type="number" value="21" /></div>
         <div class="field"><label>用户名</label><input type="text" value="webuser" /></div>
         <div class="field"><label>密码</label><input type="password" value="••••••" /></div>
-        <div class="field"><label>远程根目录</label><input type="text" value="/public_html" /></div>
+        <div class="field"><label>远程根目录</label><input type="text" value="/public_html" placeholder="/public_html" /></div>
         <div class="field"><label>路径前缀</label><input type="text" placeholder="本地路径映射到 FTP 的子目录" /></div>
+        <label class="check-row">
+          <input type="checkbox" checked />
+          被动模式（passive）
+        </label>
+        <label class="check-row">
+          <input type="checkbox" />
+          FTPS（secure）
+        </label>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn btn-ghost" type="button">测试连接</button>
+        </div>
       </div>
 
-      <a class="btn btn-primary btn-block" href="index.html" style="text-decoration:none">保存并设为当前</a>
+      <a class="btn btn-primary btn-block" href="projects.html" style="text-decoration:none;text-align:center">保存并设为当前</a>
       <button class="btn btn-danger btn-block" type="button">删除项目</button>
-      <p style="margin-top:16px"><a href="projects.html" class="section-link">← 返回项目列表</a></p>
     </main>
 
     <nav class="tab-bar">

@@ -1350,21 +1350,120 @@ code.inline {
   cursor: not-allowed;
 }
 
-.session-card {
-  padding: 14px;
+.chat-header {
+  padding-top: 14px;
+  padding-bottom: 12px;
 }
 
-.session-card-head {
+.chat-header-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 8px;
 }
 
-.session-root-hint {
-  margin: 8px 0 0;
-  font-size: 12px;
+.chat-header-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-header-titles h1 {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-header-btn {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  margin-top: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+}
+
+.chat-header-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chat-header-btn:active:not(:disabled) {
+  transform: scale(0.96);
+  background: var(--accent-soft);
+}
+
+.history-drawer {
+  width: min(86vw, 320px);
+  height: 100%;
+  max-height: 100%;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 0;
+  animation: history-drawer-in 0.22s ease-out;
+}
+
+@keyframes history-drawer-in {
+  from {
+    transform: translateX(-12px);
+    opacity: 0.85;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.history-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 14px 12px;
+  padding-top: max(16px, env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--border);
+}
+
+.history-drawer-titles {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.history-drawer-titles strong {
+  font-size: 16px;
+  color: var(--text);
+}
+
+.history-drawer-sub {
+  font-size: 11px;
   color: var(--muted);
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.history-drawer-toolbar {
+  padding: 12px 14px 0;
+}
+
+.history-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 14px calc(18px + var(--safe-b));
 }
 
 .session-list {
@@ -1374,6 +1473,10 @@ code.inline {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.session-list--drawer {
+  margin: 0;
 }
 
 .session-item {
@@ -1520,6 +1623,18 @@ code.inline {
   justify-content: center;
   padding: 16px;
   padding-bottom: calc(16px + var(--safe-b));
+}
+
+/* 会话侧栏：贴 app 左缘，覆盖 sheet-overlay 的内边距 */
+.sheet-overlay.history-drawer-overlay {
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+  max-width: 480px;
+  margin: 0 auto;
+  left: 0;
+  right: 0;
+  background: rgba(12, 26, 46, 0.42);
 }
 
 /* class 的 display:flex 会盖掉 [hidden] 默认 display:none，必须显式关闭 */

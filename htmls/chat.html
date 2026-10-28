@@ -10,39 +10,61 @@
 </head>
 <body>
   <div class="app-shell">
-    <div class="preview-banner">静态 HTML 预览</div>
+    <div class="preview-banner">静态 HTML 预览 · 浅蓝科技主题</div>
 
-    <header class="app-header">
-      <h1>Agent 对话</h1>
-      <div class="sub">官网前端 · 工具在本地沙盒执行</div>
+    <header class="app-header chat-header">
+      <div class="chat-header-row">
+        <button
+          type="button"
+          class="chat-header-btn"
+          id="historyOpen"
+          title="会话记录"
+          aria-label="打开会话记录"
+        >
+          <span aria-hidden="true">☰</span>
+        </button>
+        <div class="chat-header-titles">
+          <h1>改首页标题</h1>
+          <div class="sub">官网前端 · deepseek-chat · ai.1k0.com</div>
+        </div>
+        <button
+          type="button"
+          class="chat-header-btn"
+          id="newSessionBtn"
+          title="新会话"
+          aria-label="开启新会话"
+        >
+          <span aria-hidden="true">＋</span>
+        </button>
+      </div>
     </header>
 
     <main class="app-main chat-main">
-      <div class="card session-card">
-        <div class="session-card-head">
-          <span class="card-title" style="margin:0">会话</span>
-        </div>
-        <p class="session-root-hint">存储于：Documents/abs-chats</p>
-        <ul class="session-list">
-          <li class="session-item active">
-            <button type="button" class="session-main">
-              <span class="session-title">改首页标题</span>
-              <span class="session-meta">10-26 14:08 · 4 条</span>
-              <span class="session-preview">把首页 hero 区域的标题改成…</span>
-            </button>
-            <button type="button" class="session-del">删除</button>
-          </li>
-        </ul>
-      </div>
-
       <div class="msg-user msg-row">
         <div class="msg-body">把首页 hero 区域的标题改成「欢迎使用 ABS」</div>
+      </div>
+
+      <div class="tool-log-panel">
+        <div class="tool-log-head">
+          <span class="tool-log-title">读取与工具记录 · 2</span>
+        </div>
+        <div class="tool-log-scroll">
+          <div class="tool-line ok">✓ 读取 index.html</div>
+          <div class="tool-line ok">✓ 写入 index.html</div>
+        </div>
+        <button type="button" class="tool-log-detail">查看详情</button>
       </div>
 
       <div class="msg-assistant msg-row">
         <div class="msg-body">
           <span class="msg-text">已修改首页标题，建议刷新后确认样式。</span>
         </div>
+      </div>
+
+      <div class="turn-modified-bar">
+        <button type="button" class="btn btn-ghost btn-block">
+          查看 AI 实际修改的文件（1）
+        </button>
       </div>
     </main>
 
@@ -58,6 +80,49 @@
     <button type="button" class="chat-fab" id="chatFab" title="项目与工作区" aria-label="打开项目设置">
       <span class="chat-fab-icon">▤</span>
     </button>
+
+    <!-- 全高左侧会话记录侧栏 -->
+    <div
+      class="sheet-overlay history-drawer-overlay"
+      id="historyDrawer"
+      hidden
+      aria-hidden="true"
+    >
+      <aside class="history-drawer" role="dialog" aria-modal="true" aria-label="会话记录">
+        <div class="history-drawer-header">
+          <div class="history-drawer-titles">
+            <strong>会话记录</strong>
+            <span class="history-drawer-sub">Documents/abs-chats</span>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" id="historyClose">关闭</button>
+        </div>
+        <div class="history-drawer-toolbar">
+          <button type="button" class="btn btn-primary btn-block" id="historyNewSession">
+            开启新会话
+          </button>
+        </div>
+        <div class="history-drawer-body">
+          <ul class="session-list session-list--drawer">
+            <li class="session-item active">
+              <button type="button" class="session-main">
+                <span class="session-title">改首页标题</span>
+                <span class="session-meta">10-26 14:08 · 4 条</span>
+                <span class="session-preview">把首页 hero 区域的标题改成…</span>
+              </button>
+              <button type="button" class="session-del">删除</button>
+            </li>
+            <li class="session-item">
+              <button type="button" class="session-main">
+                <span class="session-title">会话 2</span>
+                <span class="session-meta">10-25 21:12 · 2 条</span>
+                <span class="session-preview">帮我检查 FTP 上传脚本</span>
+              </button>
+              <button type="button" class="session-del">删除</button>
+            </li>
+          </ul>
+        </div>
+      </aside>
+    </div>
 
     <div class="sheet-overlay" id="projectSheet" hidden aria-hidden="true">
       <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="projectSheetTitle">
@@ -91,6 +156,14 @@
           <div class="sheet-section">
             <label class="field-label">会话操作</label>
             <button class="btn btn-primary btn-block" type="button">开启新会话</button>
+            <button
+              class="btn btn-ghost btn-block"
+              type="button"
+              style="margin-top:8px"
+              id="openHistoryFromSheet"
+            >
+              查看会话记录
+            </button>
             <div class="chat-actions chat-actions--sheet">
               <button class="btn btn-ghost" type="button">写回手机</button>
               <button class="btn btn-ghost" type="button">FTP 上传</button>
@@ -117,8 +190,19 @@
       var sheet = document.getElementById('projectSheet');
       var fab = document.getElementById('chatFab');
       var closeBtn = document.getElementById('projectSheetClose');
+      var history = document.getElementById('historyDrawer');
+      var historyOpen = document.getElementById('historyOpen');
+      var historyClose = document.getElementById('historyClose');
+      var openFromSheet = document.getElementById('openHistoryFromSheet');
       var input = document.querySelector('.chat-input-bar textarea');
-      if (!sheet || !fab || !closeBtn) return;
+      if (!sheet || !fab || !closeBtn || !history) return;
+
+      function focusInput() {
+        if (!input) return;
+        requestAnimationFrame(function () {
+          input.focus({ preventScroll: true });
+        });
+      }
 
       function openSheet() {
         sheet.hidden = false;
@@ -127,11 +211,16 @@
       function closeSheet() {
         sheet.hidden = true;
         sheet.setAttribute('aria-hidden', 'true');
-        if (input) {
-          requestAnimationFrame(function () {
-            input.focus({ preventScroll: true });
-          });
-        }
+        focusInput();
+      }
+      function openHistory() {
+        history.hidden = false;
+        history.setAttribute('aria-hidden', 'false');
+      }
+      function closeHistory() {
+        history.hidden = true;
+        history.setAttribute('aria-hidden', 'true');
+        focusInput();
       }
 
       fab.addEventListener('click', openSheet);
@@ -143,8 +232,21 @@
       sheet.addEventListener('click', function (e) {
         if (e.target === sheet) closeSheet();
       });
+      if (historyOpen) historyOpen.addEventListener('click', openHistory);
+      if (historyClose) historyClose.addEventListener('click', closeHistory);
+      history.addEventListener('click', function (e) {
+        if (e.target === history) closeHistory();
+      });
+      if (openFromSheet) {
+        openFromSheet.addEventListener('click', function () {
+          closeSheet();
+          openHistory();
+        });
+      }
       document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && !sheet.hidden) closeSheet();
+        if (e.key !== 'Escape') return;
+        if (!history.hidden) closeHistory();
+        else if (!sheet.hidden) closeSheet();
       });
     })();
   </script>

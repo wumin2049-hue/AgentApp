@@ -19,17 +19,28 @@
 
     <main class="app-main">
       <div class="card card-warn">
-        <span class="card-title">会话存储目录（必填）</span>
-        <p class="hint-text" style="margin:0 0 12px">会话以目录+文件保存，须先选择手机上的总目录。</p>
-        <button class="btn btn-primary btn-block" type="button">选择会话存储总目录</button>
+        <span class="card-title">手机数据目录（必选）</span>
+        <p class="card-desc">
+          必须授权一个手机本地文件夹。系统会弹出目录选择器，请点「使用此文件夹 / 允许」以授予读、写、列表权限；对话改代码、同步项目都依赖此授权。
+        </p>
+        <p class="hint-text" style="margin:0 0 12px">
+          当前：<strong>未授权（请选择手机文件夹）</strong>
+        </p>
+        <p class="hint-text" style="margin:0 0 12px">
+          结构：<code>app/settings.json</code>、<code>app/projects.json</code>、
+          <code>{项目ID}/…</code>
+        </p>
+        <div class="btn-row" style="margin-top:0">
+          <button class="btn btn-primary" type="button">选择手机文件夹并授权</button>
+        </div>
       </div>
 
       <div class="card card-premium">
         <span class="card-title">接口配置</span>
-        <p class="hint-text" style="margin:0 0 14px">填写上游 API 地址与 Key，对齐 agent Harness。</p>
+        <p class="card-desc">对齐 agent Harness：填写上游 API 地址与 Key，本地执行工具循环。</p>
         <div class="field">
           <label>API 地址</label>
-          <input type="url" value="https://api.deepseek.com" placeholder="https://api.deepseek.com" />
+          <input type="url" value="https://ai.1k0.com/v1" placeholder="https://ai.1k0.com/v1" autocomplete="off" />
         </div>
         <div class="field">
           <label>API Key</label>
@@ -40,24 +51,51 @@
           <button class="btn btn-ghost" type="button">保存</button>
         </div>
         <p class="hint-text ok" style="margin-top:10px">连接正常，可以拉取模型并开始对话</p>
+        <ul class="test-steps">
+          <li>解析 API Base</li>
+          <li>Bearer 鉴权通过</li>
+          <li>models 列表可读</li>
+        </ul>
       </div>
 
       <div class="card card-premium">
         <span class="card-title">模型</span>
         <div class="field">
           <label>默认模型</label>
-          <input type="text" value="deepseek-chat" />
+          <input type="text" value="deepseek-chat" placeholder="拉取后点选，或手动填写 model id" />
         </div>
-        <button class="btn btn-primary btn-block" type="button" style="margin-top:8px">拉取模型列表</button>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+        <div class="btn-row">
+          <button class="btn btn-primary" type="button">拉取模型列表</button>
+        </div>
+        <div class="model-chips">
           <button type="button" class="chip active">deepseek-chat</button>
           <button type="button" class="chip">gpt-4o-mini</button>
         </div>
       </div>
 
       <div class="card">
+        <span class="card-title">高级</span>
+        <div class="field">
+          <label>Max Tokens</label>
+          <input type="number" value="8192" />
+        </div>
+        <div class="field">
+          <label>Temperature</label>
+          <input type="number" step="0.1" min="0" max="2" value="0.7" />
+        </div>
+        <div class="field">
+          <label>系统补充说明（可选）</label>
+          <textarea rows="3" placeholder="追加到每次对话的 system prompt"></textarea>
+        </div>
+        <button class="btn btn-ghost btn-block" type="button" style="margin-top:8px">保存高级设置</button>
+      </div>
+
+      <div class="card">
         <span class="card-title">关于</span>
-        <p class="hint-text" style="margin:0">mincode v1.0.12 · 工具本地执行 · 模型直连上游 API</p>
+        <p class="hint-text" style="margin:0">mincode v1.0.21 · 工具本地执行 · 模型经原生 HTTP 直连上游</p>
+        <p class="hint-text" style="margin:8px 0 0">
+          配置同时写入 Preferences 与数据目录；外部目录会申请持久权限，避免重开后失效。
+        </p>
       </div>
     </main>
 

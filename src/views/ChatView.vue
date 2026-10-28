@@ -35,9 +35,9 @@ const workRootInput = ref('');
 const topDirs = ref<string[]>([]);
 const sessionBusy = ref(false);
 const projectSheetOpen = ref(false);
+const historyDrawerOpen = ref(false);
 const inputEl = ref<HTMLTextAreaElement | null>(null);
 const messagesEndEl = ref<HTMLElement | null>(null);
-const sessionListCollapsed = ref(true);
 const abortCtl = ref<AbortController | null>(null);
 const dockPad = ref(0);
 const toolDetailOpen = ref(false);
@@ -104,6 +104,22 @@ const sendBlockedReason = computed(() => {
 
 const inputLocked = computed(() => busy.value || chat.streaming);
 
+/** 打开/切换/删除/新建会话：只需存储就绪，不要求已配好模型 */
+const canManageSessions = computed(
+  () =>
+    Boolean(project.value) &&
+    agentSettings.hasChatStorageRoot &&
+    agentSettings.storageAccessOk &&
+    chat.storageReady &&
+    !busy.value &&
+    !chat.streaming &&
+    !sessionBusy.value,
+);
+
+const currentSessionTitle = computed(
+  () => chat.activeSession?.title?.trim() || '新会话',
+);
+
 const harnessMemoryHint = computed(() => {
   const d = chat.harnessDigest;
   const parts: string[] = [];
@@ -139,7 +155,7 @@ function openProjectSheet() {
 function closeProjectSheet() {
   if (!projectSheetOpen.value) return;
   projectSheetOpen.value = false;
-  document.body.style.overflow = '';
+  if (!historyDrawerOpen.value) document.body.style.overflow = '';
   focusChatInput();
 }
 
@@ -148,8 +164,31 @@ function openProjectSheetSafe() {
   document.body.style.overflow = 'hidden';
 }
 
+function openHistoryDrawer() {
+  historyDrawerOpen.value = true;
+  document.body.style.overflow = 'hidden';
+}
+
+function closeHistoryDrawer() {
+  if (!historyDrawerOpen.value) return;
+  historyDrawerOpen.value = false;
+  if (!projectSheetOpen.value) document.body.style.overflow = '';
+  focusChatInput();
+}
+
+function openHistoryFromProjectSheet() {
+  closeProjectSheet();
+  openHistoryDrawer();
+}
+
 function onProjectSheetKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && projectSheetOpen.value) {
+  if (e.key !== 'Escape') return;
+  if (historyDrawerOpen.value) {
+    e.preventDefault();
+    closeHistoryDrawer();
+    return;
+  }
+  if (projectSheetOpen.value) {
     e.preventDefault();
     closeProjectSheet();
   }
@@ -209,11 +248,13 @@ function useSubdir(dir: string) {
 }
 
 async function onNewSession() {
-  if (!canSend.value || sessionBusy.value) return;
+  if (!canManageSessions.value) return;
   sessionBusy.value = true;
   try {
     await chat.createSession();
+    closeHistoryDrawer();
     closeProjectSheet();
+    void scrollToBottom();
   } catch (e) {
     chat.setError(e instanceof Error ? e.message : String(e));
   } finally {
@@ -222,10 +263,15 @@ async function onNewSession() {
 }
 
 async function onSwitchSession(id: string) {
-  if (!canSend.value || sessionBusy.value || id === chat.sessionId) return;
+  if (!canManageSessions.value || id === chat.sessionId) {
+    if (id === chat.sessionId) closeHistoryDrawer();
+    return;
+  }
   sessionBusy.value = true;
   try {
     await chat.switchSession(id);
+    closeHistoryDrawer();
+    void scrollToBottom();
   } catch (e) {
     chat.setError(e instanceof Error ? e.message : String(e));
   } finally {
@@ -234,7 +280,7 @@ async function onSwitchSession(id: string) {
 }
 
 async function onDeleteSession(id: string) {
-  if (!canSend.value || sessionBusy.value) return;
+  if (!canManageSessions.value) return;
   if (!window.confirm('删除该会话及其全部消息？此操作不可恢复。')) return;
   sessionBusy.value = true;
   try {
@@ -532,27 +578,54 @@ async function uploadSelectedToFtp() {
 }
 
 function onGlobalKeydown(e: KeyboardEvent) {
-  onProjectSheetKeydown(e);
   if (e.key === 'Escape') {
     if (modifiedSheetOpen.value) {
       e.preventDefault();
       closeModifiedSheet();
-    } else if (toolDetailOpen.value) {
+      return;
+    }
+    if (toolDetailOpen.value) {
       e.preventDefault();
       closeToolDetail();
+      return;
     }
   }
+  onProjectSheetKeydown(e);
 }
 </script>
 
 <template>
-  <header class="app-header">
-    <h1>Agent 对话</h1>
-    <div class="sub" v-if="project && aiStatusLine">
-      {{ project.name }} · {{ aiStatusLine }}
+  <header class="app-header chat-header">
+    <div class="chat-header-row">
+      <button
+        type="button"
+        class="chat-header-btn"
+        title="会话记录"
+        aria-label="打开会话记录"
+        :disabled="!agentSettings.hasChatStorageRoot || !project"
+        @click="openHistoryDrawer"
+      >
+        <span aria-hidden="true">☰</span>
+      </button>
+      <div class="chat-header-titles">
+        <h1>{{ currentSessionTitle }}</h1>
+        <div class="sub" v-if="project && aiStatusLine">
+          {{ project.name }} · {{ aiStatusLine }}
+        </div>
+        <div class="sub" v-else-if="project">{{ project.name }} · 工具在本地沙盒执行</div>
+        <div class="sub text-danger" v-else>请先创建并选择项目</div>
+      </div>
+      <button
+        type="button"
+        class="chat-header-btn"
+        title="新会话"
+        aria-label="开启新会话"
+        :disabled="!canManageSessions"
+        @click="onNewSession"
+      >
+        <span aria-hidden="true">＋</span>
+      </button>
     </div>
-    <div class="sub" v-else-if="project">{{ project.name }} · 工具在本地沙盒执行</div>
-    <div class="sub text-danger" v-else>请先创建并选择项目</div>
   </header>
 
   <main class="app-main chat-main">
@@ -590,62 +663,6 @@ function onGlobalKeydown(e: KeyboardEvent) {
 
     <div v-if="!projects.projects.length" class="card">
       <p class="hint-text">还没有项目，请先在「项目」页创建并绑定手机目录。</p>
-    </div>
-
-    <div
-      v-if="agentSettings.hasChatStorageRoot && project"
-      class="card session-card"
-    >
-      <div class="session-card-head">
-        <span class="card-title" style="margin:0">会话</span>
-        <button
-          type="button"
-          class="btn btn-ghost btn-sm"
-          @click="sessionListCollapsed = !sessionListCollapsed"
-        >
-          {{ sessionListCollapsed ? '展开' : '收起' }}
-        </button>
-      </div>
-      <p class="session-root-hint">
-        存储于：{{ agentSettings.chatStorageRoot?.label || '—' }}
-        <template v-if="chat.activeSession">
-          · 当前：{{ chat.activeSession.title || '未命名' }}
-        </template>
-      </p>
-      <template v-if="!sessionListCollapsed">
-        <div v-if="!chat.sessions.length" class="hint-text" style="margin:8px 0 0">暂无会话</div>
-        <ul v-else class="session-list">
-          <li
-            v-for="s in chat.sessions"
-            :key="s.id"
-            class="session-item"
-            :class="{ active: s.id === chat.sessionId }"
-          >
-            <button
-              type="button"
-              class="session-main"
-              :disabled="busy || chat.streaming || sessionBusy"
-              @click="onSwitchSession(s.id)"
-            >
-              <span class="session-title">{{ s.title || '未命名会话' }}</span>
-              <span class="session-meta">
-                {{ formatSessionTime(s.updatedAt) }}
-                <template v-if="s.messageCount"> · {{ s.messageCount }} 条</template>
-              </span>
-              <span v-if="s.preview" class="session-preview">{{ s.preview }}</span>
-            </button>
-            <button
-              type="button"
-              class="session-del"
-              title="删除会话"
-              :disabled="busy || chat.streaming || sessionBusy"
-              @click="onDeleteSession(s.id)"
-            >
-              删除
-            </button>
-          </li>
-        </ul>
-      </template>
     </div>
 
     <p v-if="chat.nearMessageCap" class="hint-text" style="margin:8px 0">
@@ -759,6 +776,76 @@ function onGlobalKeydown(e: KeyboardEvent) {
   </button>
 
   <div
+    v-if="historyDrawerOpen"
+    class="sheet-overlay history-drawer-overlay"
+    @click.self="closeHistoryDrawer"
+  >
+    <aside
+      class="history-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="会话记录"
+    >
+      <div class="history-drawer-header">
+        <div class="history-drawer-titles">
+          <strong>会话记录</strong>
+          <span class="history-drawer-sub">
+            {{ agentSettings.chatStorageRoot?.label || '未选择存储目录' }}
+          </span>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" @click="closeHistoryDrawer">
+          关闭
+        </button>
+      </div>
+      <div class="history-drawer-toolbar">
+        <button
+          type="button"
+          class="btn btn-primary btn-block"
+          :disabled="!canManageSessions"
+          @click="onNewSession"
+        >
+          {{ sessionBusy ? '创建中…' : '开启新会话' }}
+        </button>
+      </div>
+      <div class="history-drawer-body">
+        <div v-if="!chat.storageReady" class="hint-text">会话存储未就绪</div>
+        <div v-else-if="!chat.sessions.length" class="hint-text">暂无会话，点上方开启新会话</div>
+        <ul v-else class="session-list session-list--drawer">
+          <li
+            v-for="s in chat.sessions"
+            :key="s.id"
+            class="session-item"
+            :class="{ active: s.id === chat.sessionId }"
+          >
+            <button
+              type="button"
+              class="session-main"
+              :disabled="busy || chat.streaming || sessionBusy"
+              @click="onSwitchSession(s.id)"
+            >
+              <span class="session-title">{{ s.title || '未命名会话' }}</span>
+              <span class="session-meta">
+                {{ formatSessionTime(s.updatedAt) }}
+                <template v-if="s.messageCount"> · {{ s.messageCount }} 条</template>
+              </span>
+              <span v-if="s.preview" class="session-preview">{{ s.preview }}</span>
+            </button>
+            <button
+              type="button"
+              class="session-del"
+              title="删除会话"
+              :disabled="!canManageSessions"
+              @click.stop="onDeleteSession(s.id)"
+            >
+              删除
+            </button>
+          </li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <div
     v-if="projectSheetOpen"
     class="sheet-overlay"
     @click.self="closeProjectSheet"
@@ -848,10 +935,19 @@ function onGlobalKeydown(e: KeyboardEvent) {
           <button
             class="btn btn-primary btn-block"
             type="button"
-            :disabled="!canSend || sessionBusy"
+            :disabled="!canManageSessions"
             @click="onNewSession"
           >
             {{ sessionBusy ? '创建中…' : '开启新会话' }}
+          </button>
+          <button
+            class="btn btn-ghost btn-block"
+            type="button"
+            style="margin-top:8px"
+            :disabled="!agentSettings.hasChatStorageRoot || !project"
+            @click="openHistoryFromProjectSheet"
+          >
+            查看会话记录
           </button>
           <div class="chat-actions chat-actions--sheet">
             <button class="btn btn-ghost" type="button" :disabled="!project || exportBusy" @click="exportToPhone">

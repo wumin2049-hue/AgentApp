@@ -21,7 +21,7 @@ onMounted(async () => {
     const overlay = document.querySelector('.sheet-overlay:not([hidden]), .preview-overlay');
     if (overlay) {
       const closeBtn = overlay.querySelector(
-        '.sheet-header .btn, .preview-header .btn',
+        '.sheet-header .btn, .history-drawer-header .btn, .preview-header .btn',
       ) as HTMLElement | null;
       if (closeBtn) closeBtn.click();
       else (overlay as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
