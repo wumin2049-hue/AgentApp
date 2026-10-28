@@ -31,6 +31,10 @@ concurrency:
   group: mincode-android-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  actions: write
+
 env:
   JAVA_VERSION: '17'
   NODE_VERSION: '20'
@@ -43,6 +47,7 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       variant: ${{ steps.buildvar.outputs.variant }}
       artifact_name: ${{ steps.buildvar.outputs.artifact_name }}
+      should_upload: ${{ steps.buildvar.outputs.should_upload }}
     steps:
       - uses: actions/checkout@v4
 
@@ -79,6 +84,18 @@ jobs:
           echo "variant=$VARIANT" >> "$GITHUB_OUTPUT"
           echo "artifact_name=mincode-${VERSION}-${VARIANT}-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
+          # 避免每次 push/PR 都上传 Artifact 撑爆配额：
+          # - release：需要给后续 Release job 用，始终上传
+          # - debug：仅手动 workflow_dispatch 上传
+          UPLOAD="false"
+          if [ "$VARIANT" = "release" ]; then
+            UPLOAD="true"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            UPLOAD="true"
+          fi
+          echo "should_upload=$UPLOAD" >> "$GITHUB_OUTPUT"
+          echo "Artifact upload: $UPLOAD (event=${{ github.event_name }}, variant=$VARIANT)"
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -113,7 +130,7 @@ jobs:
           if [ ! -f android/gradlew ]; then
             npx cap add android
           fi
-      # sync 可能重置 MainActivity；patch 必须在 sync 之后，确保原生插件注册 + Kotlin 可编译
+      # sync 可能重置 MainActivity；patch 必须在 sync 之后
       - run: npx cap sync android
       - run: npm run android:patch
       - run: npx cap sync android
@@ -149,27 +166,59 @@ jobs:
           chmod +x android/gradlew
           cd android && ./gradlew assembleRelease --no-daemon --stacktrace
 
+      # 上传前清空本仓库全部 Actions Artifact，腾出配额
+      - name: Purge old Actions artifacts
+        if: steps.buildvar.outputs.should_upload == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          echo "Listing artifacts for ${{ github.repository }}…"
+          PAGE=1
+          while true; do
+            RESP=$(gh api "/repos/${{ github.repository }}/actions/artifacts?per_page=100&page=$PAGE") || break
+            IDS=$(echo "$RESP" | jq -r '.artifacts[]?.id // empty')
+            COUNT=$(echo "$IDS" | grep -c '^[0-9]' || true)
+            if [ "$COUNT" -eq 0 ]; then
+              break
+            fi
+            for id in $IDS; do
+              echo "Deleting artifact id=$id"
+              gh api -X DELETE "/repos/${{ github.repository }}/actions/artifacts/$id" || true
+            done
+            TOTAL=$(echo "$RESP" | jq -r '.total_count // 0')
+            DONE=$((PAGE * 100))
+            if [ "$DONE" -ge "$TOTAL" ]; then
+              break
+            fi
+            PAGE=$((PAGE + 1))
+          done
+          echo "Purge done."
+
       - name: Upload Debug APK
-        if: steps.buildvar.outputs.variant == 'debug'
+        if: steps.buildvar.outputs.variant == 'debug' && steps.buildvar.outputs.should_upload == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.buildvar.outputs.artifact_name }}
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 3
+          overwrite: true
 
       - name: Upload Release APK
-        if: steps.buildvar.outputs.variant == 'release'
+        if: steps.buildvar.outputs.variant == 'release' && steps.buildvar.outputs.should_upload == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.buildvar.outputs.artifact_name }}
           path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 3
+          overwrite: true
 
       - name: Summary
         run: |
           echo "### mincode APK" >> "$GITHUB_STEP_SUMMARY"
           echo "- Version: \`${{ steps.meta.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Variant: \`${{ steps.buildvar.outputs.variant }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Upload artifact: \`${{ steps.buildvar.outputs.should_upload }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Artifact: \`${{ steps.buildvar.outputs.artifact_name }}\`" >> "$GITHUB_STEP_SUMMARY"
