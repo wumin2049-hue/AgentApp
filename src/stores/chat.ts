@@ -161,25 +161,32 @@ export const useChatStore = defineStore('chat', {
 
     async persist() {
       if (!this.projectId || !this.sessionId) return;
-      const root = this.requireStorageRoot();
-      await writeSessionData(root, this.projectId, this.sessionId, {
-        messages: this.messages,
-        lastModified: this.lastModified,
-        harnessDigest: this.harnessDigest,
-      });
-      saveHarnessDigest(this.projectId, this.harnessDigest, this.sessionId);
-
-      const idx = this.sessions.findIndex((s) => s.id === this.sessionId);
-      if (idx >= 0) {
-        this.sessions[idx] = bumpSessionMeta(this.sessions[idx], this.messages);
+      try {
+        const root = this.requireStorageRoot();
+        const idx = this.sessions.findIndex((s) => s.id === this.sessionId);
+        if (idx >= 0) {
+          this.sessions[idx] = bumpSessionMeta(this.sessions[idx], this.messages);
+        }
+        await writeSessionData(root, this.projectId, this.sessionId, {
+          messages: this.messages,
+          lastModified: this.lastModified,
+          harnessDigest: this.harnessDigest,
+        });
+        saveHarnessDigest(this.projectId, this.harnessDigest, this.sessionId);
+        await writeProjectIndex(root, this.projectId, {
+          sessions: this.sessions,
+          activeSessionId: this.sessionId,
+        });
+        this.sessions = [...this.sessions].sort(
+          (a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''),
+        );
+        this.storageReady = true;
+      } catch (e) {
+        this.error =
+          e instanceof Error
+            ? `会话保存失败：${e.message}`
+            : `会话保存失败：${String(e)}`;
       }
-      await writeProjectIndex(root, this.projectId, {
-        sessions: this.sessions,
-        activeSessionId: this.sessionId,
-      });
-      this.sessions = [...this.sessions].sort(
-        (a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''),
-      );
     },
 
     async createSession() {

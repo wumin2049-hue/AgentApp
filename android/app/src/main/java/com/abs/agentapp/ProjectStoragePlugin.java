@@ -193,7 +193,12 @@ public class ProjectStoragePlugin extends Plugin {
         DocumentFile dir = root;
         for (String part : parts) {
             if (part == null || part.isEmpty()) continue;
-            DocumentFile next = dir.findFile(part);
+            DocumentFile next = findFileFlexible(dir, part);
+            if (next != null && !next.isDirectory()) {
+                // 误建成文件（含 .txt）时删掉再按目录建
+                next.delete();
+                next = null;
+            }
             if (next == null) next = dir.createDirectory(part);
             if (next == null) return null;
             dir = next;
@@ -342,9 +347,7 @@ public class ProjectStoragePlugin extends Plugin {
                         continue;
                     }
                     try {
-                        DocumentFile existing = parent.findFile(fileName);
-                        if (existing != null) existing.delete();
-                        DocumentFile outDoc = parent.createFile("text/plain", fileName);
+                        DocumentFile outDoc = createOrReplaceFile(parent, fileName);
                         if (outDoc == null) throw new RuntimeException("createFile failed");
                         try (FileInputStream input = new FileInputStream(srcFile);
                              OutputStream output = getContext().getContentResolver().openOutputStream(outDoc.getUri())) {
@@ -404,12 +407,75 @@ public class ProjectStoragePlugin extends Plugin {
         return root;
     }
 
+    /**
+     * Android SAF：createFile("text/plain", "a.json") 常变成 a.json.txt。
+     * 读写统一用不带自动后缀的 MIME，并兼容旧的 .txt 后缀文件。
+     */
+    private static String mimeForFileName(String fileName) {
+        String lower = fileName == null ? "" : fileName.toLowerCase();
+        if (lower.endsWith(".json")) return "application/json";
+        if (lower.endsWith(".md")) return "text/markdown";
+        if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
+        if (lower.endsWith(".xml")) return "application/xml";
+        if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".cjs")) {
+            return "application/javascript";
+        }
+        if (lower.endsWith(".ts") || lower.endsWith(".tsx") || lower.endsWith(".jsx")) {
+            return "application/octet-stream";
+        }
+        if (lower.endsWith(".css") || lower.endsWith(".scss")) return "text/css";
+        if (lower.endsWith(".vue")) return "application/octet-stream";
+        if (lower.endsWith(".php")) return "application/x-httpd-php";
+        // 切勿使用 text/plain，否则文件名会被系统追加 .txt
+        return "application/octet-stream";
+    }
+
+    private DocumentFile findFileFlexible(DocumentFile parent, String name) {
+        if (parent == null || name == null || name.isEmpty()) return null;
+        DocumentFile exact = parent.findFile(name);
+        if (exact != null) return exact;
+        DocumentFile txt = parent.findFile(name + ".txt");
+        if (txt != null) return txt;
+        DocumentFile[] children = parent.listFiles();
+        if (children == null) return null;
+        for (DocumentFile c : children) {
+            String n = c.getName();
+            if (n == null) continue;
+            if (n.equals(name) || n.equals(name + ".txt")) return c;
+            // 部分 ROM 显示名不含扩展，比对其主名
+            if (name.contains(".") && n.equals(name.substring(0, name.lastIndexOf('.')))) {
+                return c;
+            }
+        }
+        return null;
+    }
+
+    private DocumentFile createOrReplaceFile(DocumentFile parent, String fileName) {
+        DocumentFile existing = findFileFlexible(parent, fileName);
+        if (existing != null) {
+            existing.delete();
+        }
+        DocumentFile out = parent.createFile(mimeForFileName(fileName), fileName);
+        if (out == null) {
+            // 回退再试一次 octet-stream
+            out = parent.createFile("application/octet-stream", fileName);
+        }
+        return out;
+    }
+
     private DocumentFile findChild(DocumentFile root, List<String> parts) {
         DocumentFile cur = root;
-        for (String part : parts) {
+        for (int i = 0; i < parts.size(); i++) {
+            String part = parts.get(i);
             if (part == null || part.isEmpty()) continue;
-            cur = cur.findFile(part);
-            if (cur == null) return null;
+            boolean last = i == parts.size() - 1;
+            DocumentFile next = last ? findFileFlexible(cur, part) : cur.findFile(part);
+            if (next == null && !last) {
+                // 目录偶发被建成 xxx.txt
+                next = cur.findFile(part + ".txt");
+            }
+            if (next == null) return null;
+            cur = next;
         }
         return cur;
     }
@@ -456,9 +522,7 @@ public class ProjectStoragePlugin extends Plugin {
                     parent = getOrCreateDir(root, parts.subList(0, parts.size() - 1));
                 }
                 if (parent == null) throw new RuntimeException("cannot create parent");
-                DocumentFile existing = parent.findFile(fileName);
-                if (existing != null) existing.delete();
-                DocumentFile outDoc = parent.createFile("text/plain", fileName);
+                DocumentFile outDoc = createOrReplaceFile(parent, fileName);
                 if (outDoc == null) throw new RuntimeException("createFile failed");
                 try (OutputStream output = getContext().getContentResolver().openOutputStream(outDoc.getUri())) {
                     if (output == null) throw new RuntimeException("openOutputStream failed");

@@ -44,7 +44,8 @@ async function relayPoll<T extends TaskLike>(
     signal?: AbortSignal;
   } = {},
 ): Promise<T> {
-  const interval = opts.interval ?? 3000;
+  // 固定间隔轮询（非「等接口响应后再立刻下一次」之外的额外等待）
+  const interval = opts.interval ?? 1500;
   const deadline = Date.now() + (opts.timeout ?? 600_000);
   const isDone = (t: T) =>
     t.status === 'completed' || t.status === 'done' || t.status === 'succeeded';
@@ -159,7 +160,7 @@ export async function runSlashCommand(
     const task = await relayPoll(
       () => upstreamRequest(cfg, `videos/tasks/${encodeURIComponent(vid)}`, 'GET') as Promise<TaskLike & { result?: { url?: string } }>,
       {
-        interval: 6000,
+        interval: 2000,
         timeout: 600_000,
         signal,
         onTick: (t) => onStatus(`视频任务：${t.status || '处理中'}…`),
@@ -195,7 +196,7 @@ export async function runSlashCommand(
           TaskLike & { data?: unknown; result?: unknown }
         >,
       {
-        interval: 3000,
+        interval: 1500,
         timeout: 300_000,
         signal,
         onTick: (t) => onStatus(`生图任务：${t.status || '处理中'}…`),
