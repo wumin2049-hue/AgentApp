@@ -38,6 +38,8 @@ export interface WorkProject {
   ftp: FtpConfig;
   /** 远程路径 ↔ 本地相对路径 映射前缀（可选） */
   pathPrefix?: string;
+  /** 项目级 Rules（优先于自动读取的 AGENTS.md） */
+  rules?: string;
 }
 
 export interface ChatMessage {
@@ -73,6 +75,15 @@ export interface ToolLogEntry {
   path?: string;
 }
 
+/** 本轮文件改动片段（审阅用） */
+export interface FileDiffSnippet {
+  path: string;
+  kind: 'write' | 'replace' | 'delete';
+  before?: string;
+  after?: string;
+  unified?: string;
+}
+
 export interface HarnessDigest {
   modified_files: string[];
   read_files: string[];
@@ -85,6 +96,7 @@ export interface AgentTurnResult {
   model?: string;
   toolLog: ToolLogEntry[];
   modifiedFiles: string[];
+  fileDiffs?: FileDiffSnippet[];
   harnessDigest?: HarnessDigest;
 }
 

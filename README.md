@@ -16,22 +16,22 @@
 ## 架构
 
 ```
-┌─────────────┐     relay.php      ┌──────────────┐
-│  agent-app  │ ─────────────────► │  agent/ 站点  │ ──► 大模型中转 API
-│  (手机)     │   chat/completions └──────────────┘
-└──────┬──────┘
-       │ read_file / write_file / search_replace
+┌─────────────┐   CapacitorHttp    ┌──────────────────┐
+│  agent-app  │ ─────────────────► │ OpenAI 兼容上游   │
+│  (手机)     │  chat/completions  │（全局 Harness 配置）│
+└──────┬──────┘                    └──────────────────┘
+       │ read_file / write_file / search_replace（本地循环）
        ▼
-  手机沙盒项目目录
+  手机沙盒 + 授权目录（SAF）
        │
        │ FTP 上传（仅变更文件）
        ▼
   远程虚拟主机
 ```
 
-- **模型调用**：走你已部署的 `agent/api/relay.php`（与网页版相同）
-- **文件工具**：在 **App 本地**执行（不调用 `agent/api/tools.php`），避免把整个项目上传到服务器
-- **配置**：每个「项目」保存 Agent URL、Agent ID、模型、FTP 凭据、本地目录 URI
+- **模型调用**：全局设置中的 API Base + Key，经原生 HTTP 直连上游（OpenAI 兼容）
+- **文件工具**：在 **App 本地**执行 harness 工具循环，不把整仓上传到服务器
+- **配置**：全局 Harness（API/模型）+ 每项目本地目录 / FTP；会话 Preferences 双写
 
 ## 功能清单（MVP）
 
@@ -77,8 +77,8 @@ npx cap sync android
 
 脚本 `scripts/patch-android.mjs` 会自动：
 
-1. 复制 `android-native/*.kt` → `android/app/src/main/java/com/abs/agentapp/`
-2. 在 `app/build.gradle` 添加 `commons-net:commons-net:3.11.1`
+1. 复制 `android-native/*.java`（优先）→ `android/app/src/main/java/com/abs/agentapp/`
+2. 在 `app/build.gradle` 添加 `commons-net` + `documentfile`，并注入版本号
 3. 在 `MainActivity` 注册 `FtpPlugin` 与 `ProjectStoragePlugin`
 
 手动安装时，两个插件都需在 `MainActivity` 中 `registerPlugin(...)`。
@@ -169,9 +169,15 @@ agent-app/
 - FTP 密码、API 访问密码保存在手机 **Preferences**（未加密）；生产建议用系统 Keychain 插件加密
 - 勿在公共仓库提交含真实 FTP/API 密钥的导出配置
 
+## 文档
+
+| 文档 | 说明 |
+| --- | --- |
+| [docs/cursor-harness-对齐待办.md](./docs/cursor-harness-对齐待办.md) | **当前主待办**：对齐 Cursor / Harness（性能 · 交互 · 工具循环） |
+| [docs/ui-logic-完善清单.md](./docs/ui-logic-完善清单.md) | 2026-10-26 UI/逻辑审查归档 |
+
 ## 后续路线
 
-1. 完整目录同步：手机选定文件夹 ↔ 沙盒双向同步
-2. 对接 `agent/api/chat.php?mode=agent` SSE 流式
-3. 生图/生视频斜杠命令（复用 `Relay.image` / `videoCreate`）
-4. Release 签名 APK / AAB 上架
+1. 按 [Cursor / Harness 对齐待办](./docs/cursor-harness-对齐待办.md) 推进流式性能、diff 审阅、digest 统一、计划门闸等
+2. 完整目录同步：手机选定文件夹 ↔ 沙盒双向同步
+3. Release 签名 APK / AAB 上架（标签 `v*` 已走 `release.yml`）

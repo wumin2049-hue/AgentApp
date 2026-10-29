@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { ChatMessage } from '@/types';
 import { renderMarkdown } from '@/utils/markdown';
 
 const props = defineProps<{
   message: ChatMessage;
+  /** 本条正在流式输出（同一气泡内） */
   streaming?: boolean;
   deletable?: boolean;
 }>();
@@ -13,10 +14,46 @@ const emit = defineEmits<{
   delete: [id: string];
 }>();
 
-const html = computed(() =>
-  props.message.role === 'assistant' && props.message.content
-    ? renderMarkdown(props.message.content)
-    : '',
+/** 流式用纯文本，定稿后再渲染 MD（减掉帧） */
+const finalizedHtml = ref('');
+let mdTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleFinalMd(content: string) {
+  if (mdTimer) clearTimeout(mdTimer);
+  mdTimer = setTimeout(() => {
+    finalizedHtml.value = content ? renderMarkdown(content) : '';
+    mdTimer = null;
+  }, 60);
+}
+
+watch(
+  () => [props.message.content, props.streaming, props.message.role] as const,
+  ([content, streaming, role]) => {
+    if (role !== 'assistant') {
+      finalizedHtml.value = '';
+      return;
+    }
+    if (streaming) {
+      finalizedHtml.value = '';
+      return;
+    }
+    scheduleFinalMd(content || '');
+  },
+  { immediate: true },
+);
+
+const showStreamText = computed(
+  () =>
+    props.message.role === 'assistant' &&
+    Boolean(props.streaming) &&
+    Boolean(props.message.content),
+);
+
+const showPlaceholder = computed(
+  () =>
+    props.message.role === 'assistant' &&
+    Boolean(props.streaming) &&
+    !props.message.content,
 );
 
 function onDelete() {
@@ -67,13 +104,16 @@ async function onMdClick(e: MouseEvent) {
         <pre>{{ message.reasoning }}</pre>
       </details>
 
+      <!-- 流式：同一气泡内纯文本，避免每 delta 全量 MD -->
+      <pre v-if="showStreamText" class="msg-stream-text">{{ message.content }}</pre>
+      <span v-else-if="showPlaceholder" class="msg-placeholder">…</span>
       <div
-        v-if="html"
+        v-else-if="finalizedHtml"
         class="md"
-        v-html="html"
+        v-html="finalizedHtml"
         @click="onMdClick"
       />
-      <span v-else-if="streaming" class="msg-placeholder">…</span>
+      <span v-else-if="message.content" class="msg-body-plain">{{ message.content }}</span>
     </div>
     <button
       v-if="deletable && !streaming"

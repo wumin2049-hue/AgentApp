@@ -261,6 +261,13 @@ async function pickStorageRoot() {
       <p class="hint-text" style="margin:8px 0 0">
         配置同时写入 Preferences 与数据目录；外部目录会申请持久权限，避免重开后失效。
       </p>
+      <p class="hint-text" style="margin:8px 0 0">
+        安全：API Key / FTP 密码以明文保存在本机 Preferences（未进系统 Keychain）。安装包已关闭
+        <code>allowBackup</code>，请勿用未加密云备份导出应用数据。对话按接口响应推进；斜杠生图/视频任务为固定间隔轮询。
+      </p>
+      <p class="hint-text" style="margin:8px 0 0">
+        对齐说明见仓库 <code>docs/cursor-harness-对齐待办.md</code>。
+      </p>
     </div>
   </main>
 </template>

@@ -1,6 +1,26 @@
+import type { WorkProject } from '@/types';
+import { readProjectFile } from './localFs';
+
 /** 规范化工具 path：去前导斜杠、禁止 .. 穿越 */
 export function normToolPath(path: string): string {
   return path.replace(/^\/+/, '').replace(/\\/g, '/').trim();
+}
+
+const RULE_FILES = ['AGENTS.md', '.mincode/rules.md', 'RULES.md', '.cursorrules'];
+
+/** 项目 Rules：设置里的 rules 优先，否则尝试沙盒内约定文件 */
+export async function loadProjectRulesText(project: WorkProject): Promise<string> {
+  const inline = project.rules?.trim();
+  if (inline) return inline;
+  for (const rel of RULE_FILES) {
+    try {
+      const text = await readProjectFile(project, rel);
+      if (text?.trim()) return text.trim();
+    } catch {
+      /* try next */
+    }
+  }
+  return '';
 }
 
 /** 工作区前缀（空 = 整个项目根） */
@@ -46,6 +66,7 @@ export function buildAgentSystemPrompt(
   workRoot: string,
   customPrompt?: string,
   harnessNote?: string,
+  projectRules?: string,
 ): string {
   const ws = scopePrefix(workRoot);
   const wsLine = ws
@@ -66,8 +87,11 @@ export function buildAgentSystemPrompt(
   if (harnessNote?.trim()) {
     out += `\n\n${harnessNote.trim()}`;
   }
+  if (projectRules?.trim()) {
+    out += `\n\n【项目 Rules】\n${projectRules.trim().slice(0, 8000)}`;
+  }
   if (customPrompt?.trim()) {
-    out += `\n\n【项目补充说明】\n${customPrompt.trim()}`;
+    out += `\n\n【全局补充说明】\n${customPrompt.trim()}`;
   }
   return out;
 }

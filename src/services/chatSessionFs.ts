@@ -216,9 +216,33 @@ export async function deleteSessionDir(
   projectId: string,
   sessionId: string,
 ): Promise<void> {
+  if (!sessionId) return;
   await prefsRemove(prefsSessionKey(projectId, sessionId));
   try {
     await deleteTreePath(root.uri, `${projectId}/${sessionId}`);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 删除某项目下全部会话目录与索引（删项目时用） */
+export async function deleteProjectChatTree(
+  root: ChatStorageRoot,
+  projectId: string,
+): Promise<void> {
+  await prefsRemove(prefsIndexKey(projectId));
+  try {
+    const index = await readProjectIndex(root, projectId);
+    if (index?.sessions?.length) {
+      for (const s of index.sessions) {
+        await prefsRemove(prefsSessionKey(projectId, s.id));
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    await deleteTreePath(root.uri, projectId);
   } catch {
     /* ignore */
   }

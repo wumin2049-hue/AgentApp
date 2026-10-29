@@ -25,6 +25,10 @@ function digestStorageKey(projectId: string, sessionId?: string): string {
     : `${DIGEST_KEY}:${projectId}`;
 }
 
+/**
+ * 会话文件（messages.json → harnessDigest）为唯一真源。
+ * localStorage 仅作进程内热缓存 / 旧版迁移，避免与会话双轨漂移。
+ */
 export function loadHarnessDigest(projectId: string, sessionId?: string): HarnessDigest {
   try {
     const raw =
@@ -47,14 +51,33 @@ export function saveHarnessDigest(
   digest: HarnessDigest,
   sessionId?: string,
 ): void {
-  localStorage.setItem(digestStorageKey(projectId, sessionId), JSON.stringify(digest));
+  try {
+    const key = digestStorageKey(projectId, sessionId);
+    // 空 digest 不占缓存，避免清记忆后残留
+    if (
+      !digest.modified_files.length &&
+      !digest.read_files.length &&
+      !digest.grep_keys.length
+    ) {
+      localStorage.removeItem(key);
+      if (sessionId) localStorage.removeItem(digestStorageKey(projectId));
+      return;
+    }
+    localStorage.setItem(key, JSON.stringify(digest));
+  } catch {
+    /* private mode / quota */
+  }
 }
 
 export function clearHarnessDigest(projectId: string, sessionId?: string): void {
-  if (sessionId) {
-    localStorage.removeItem(digestStorageKey(projectId, sessionId));
+  try {
+    if (sessionId) {
+      localStorage.removeItem(digestStorageKey(projectId, sessionId));
+    }
+    localStorage.removeItem(digestStorageKey(projectId));
+  } catch {
+    /* ignore */
   }
-  localStorage.removeItem(digestStorageKey(projectId));
 }
 
 function uniqTail(list: string[], value: string, max: number): void {
@@ -251,7 +274,14 @@ export function balanceMessages(messages: unknown[]): unknown[] {
   return out;
 }
 
-export function pruneMessages(messages: unknown[]): unknown[] {
+/**
+ * 裁剪上下文：保留 system + 首条用户意图 + 尾部轮次。
+ * 过长时插入规则摘要（digest + 中间用户意图），贴近 Cursor「管上下文」而非静默丢弃。
+ */
+export function pruneMessages(
+  messages: unknown[],
+  digest?: HarnessDigest,
+): unknown[] {
   if (messages.length <= 40) return balanceMessages(messages);
 
   const system: unknown[] = [];
@@ -262,6 +292,7 @@ export function pruneMessages(messages: unknown[]): unknown[] {
   }
 
   let firstUser: unknown = null;
+  const middleUsers: string[] = [];
   const tail: unknown[] = [];
   for (const m of rest) {
     const msg = m as ApiMessage;
@@ -273,12 +304,36 @@ export function pruneMessages(messages: unknown[]): unknown[] {
       firstUser = m;
       continue;
     }
+    if (
+      msg.role === 'user' &&
+      !String(msg.content || '').startsWith('【系统】') &&
+      !String(msg.content || '').startsWith('【历史摘要】')
+    ) {
+      const t = String(msg.content || '').replace(/\s+/g, ' ').trim().slice(0, 72);
+      if (t) middleUsers.push(t);
+    }
     tail.push(m);
   }
 
   const clipped = tail.length > MAX_TAIL ? tail.slice(-MAX_TAIL) : tail;
+  const dropped = tail.length > MAX_TAIL ? tail.slice(0, tail.length - MAX_TAIL) : [];
   const merged = [...system];
   if (firstUser) merged.push(firstUser);
+
+  if (dropped.length || middleUsers.length) {
+    const intentBits = middleUsers.slice(-8);
+    const digestLine = digest ? harnessDigestFormat(digest) : '';
+    const summary =
+      '【历史摘要】较早轮次已压缩。' +
+      (intentBits.length ? `用户曾提到：${intentBits.join('；')}。` : '') +
+      (digestLine ? digestLine : '请结合尾部消息继续，勿重复已完成的读写。');
+    merged.push({ role: 'user', content: summary });
+    merged.push({
+      role: 'assistant',
+      content: '好的，已了解此前目标与工具记忆，继续当前任务。',
+    });
+  }
+
   return balanceMessages([...merged, ...clipped]);
 }
 

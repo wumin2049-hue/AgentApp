@@ -1,5 +1,11 @@
 import { chatTurnStream, TOOL_DEFINITIONS } from '@/api/agentServer';
-import type { AgentServerConfig, AgentTurnResult, ToolLogEntry, WorkProject } from '@/types';
+import type {
+  AgentServerConfig,
+  AgentTurnResult,
+  FileDiffSnippet,
+  ToolLogEntry,
+  WorkProject,
+} from '@/types';
 import {
   readProjectFile,
   writeProjectFile,
@@ -11,6 +17,7 @@ import {
 } from './localFs';
 import {
   buildAgentSystemPrompt,
+  loadProjectRulesText,
   resolveScopedPath,
   scopePrefix,
 } from './projectScope';
@@ -31,6 +38,7 @@ import {
   READ_STREAK_FORCE_AT,
   READ_STREAK_NUDGE_AT,
 } from './harness';
+import { buildUnifiedSnippet } from '@/utils/fileDiff';
 
 function toolLabel(name: string, args: Record<string, unknown>): string {
   const path = String(args.path || '');
@@ -78,7 +86,7 @@ async function executeTool(
   args: Record<string, unknown>,
   readCache: Map<string, boolean>,
   workRoot: string,
-): Promise<{ ok: boolean; output: string }> {
+): Promise<{ ok: boolean; output: string; diff?: FileDiffSnippet }> {
   try {
     const key = readCacheKey(name, args);
     if (!HARNESS_WRITE_TOOLS.has(name) && key && readCache.has(key)) {
@@ -89,6 +97,7 @@ async function executeTool(
     }
 
     let output = '';
+    let diff: FileDiffSnippet | undefined;
     if (name === 'read_file') {
       const g = guardPath(String(args.path || ''), workRoot, true);
       if (!g.ok) return g;
@@ -96,32 +105,50 @@ async function executeTool(
     } else if (name === 'write_file') {
       const g = guardPath(String(args.path || ''), workRoot, true);
       if (!g.ok) return g;
-      await writeProjectFile(project, g.rel, String(args.content || ''));
+      let before = '';
+      try {
+        before = await readProjectFile(project, g.rel);
+      } catch {
+        before = '';
+      }
+      const after = String(args.content || '');
+      await writeProjectFile(project, g.rel, after);
       await trackModified(project.id, g.rel);
       output = `已写入 ${g.rel}`;
+      diff = buildUnifiedSnippet(g.rel, before, after, 'write');
     } else if (name === 'search_replace') {
       const g = guardPath(String(args.path || ''), workRoot, true);
       if (!g.ok) return g;
-      let text = await readProjectFile(project, g.rel);
+      const before = await readProjectFile(project, g.rel);
       const oldStr = String(args.old_string || '');
       const newStr = String(args.new_string || '');
-      if (!text.includes(oldStr)) {
+      if (!before.includes(oldStr)) {
         return { ok: false, output: 'old_string 未找到' };
       }
+      let after = before;
       if (args.replace_all) {
-        text = text.split(oldStr).join(newStr);
+        after = before.split(oldStr).join(newStr);
       } else {
-        text = text.replace(oldStr, newStr);
+        after = before.replace(oldStr, newStr);
       }
-      await writeProjectFile(project, g.rel, text);
+      await writeProjectFile(project, g.rel, after);
       await trackModified(project.id, g.rel);
       output = `已替换 ${g.rel}`;
+      // 审阅优先展示替换片段
+      diff = buildUnifiedSnippet(g.rel, oldStr, newStr, 'replace');
     } else if (name === 'delete_file') {
       const g = guardPath(String(args.path || ''), workRoot, true);
       if (!g.ok) return g;
+      let before = '';
+      try {
+        before = await readProjectFile(project, g.rel);
+      } catch {
+        before = '';
+      }
       await deleteProjectFile(project, g.rel);
       await trackModified(project.id, g.rel);
       output = `已删除 ${g.rel}`;
+      diff = buildUnifiedSnippet(g.rel, before, '', 'delete');
     } else if (name === 'list_dir') {
       const g = guardPath(String(args.path || ''), workRoot);
       if (!g.ok) return g;
@@ -139,7 +166,7 @@ async function executeTool(
       return { ok: false, output: `未知工具 ${name}` };
     }
 
-    return { ok: true, output: truncateToolOutput(name, output) };
+    return { ok: true, output: truncateToolOutput(name, output), diff };
   } catch (e) {
     return { ok: false, output: e instanceof Error ? e.message : String(e) };
   }
@@ -147,10 +174,15 @@ async function executeTool(
 
 export type AgentLoopEvent =
   | { type: 'round'; round: number; forceWrite?: boolean }
+  | { type: 'tool_start'; name: string; label: string; path?: string }
   | { type: 'tool'; entry: ToolLogEntry }
   | { type: 'delta'; content: string; reasoning?: string }
   | { type: 'done'; result: AgentTurnResult }
   | { type: 'error'; message: string };
+
+export type AgentLoopConfirm = (message: string) => boolean | Promise<boolean>;
+
+const READ_ONLY_TOOLS = new Set(['read_file', 'grep', 'glob', 'list_dir']);
 
 /**
  * 移动端 Agent 循环：对齐 agent/lib/agent_loop.php + harness.php
@@ -169,6 +201,7 @@ export async function runAgentLoop(
   workRoot = '',
   harnessDigest: HarnessDigest = { modified_files: [], read_files: [], grep_keys: [] },
   signal?: AbortSignal,
+  confirmAction?: AgentLoopConfirm,
 ): Promise<AgentTurnResult> {
   const model = agent.model || '';
   if (!model) {
@@ -179,18 +212,22 @@ export async function runAgentLoop(
   }
 
   const digestNote = harnessDigestFormat(harnessDigest);
+  const projectRules = await loadProjectRulesText(project);
   const system = buildAgentSystemPrompt(
     project.name,
     project.localRootLabel,
     workRoot,
     agent.systemPrompt,
     digestNote,
+    projectRules,
   );
 
-  const history = priorMessages
+  const rawHistory = priorMessages
     .filter((m) => m.role === 'user' || m.role === 'assistant')
-    .slice(-20)
     .map((m) => ({ role: m.role, content: m.content }));
+  const history = pruneMessages(rawHistory, harnessDigest).filter(
+    (m) => (m as { role?: string }).role !== 'system',
+  ) as Array<{ role: string; content: string }>;
 
   const messages: unknown[] = [
     { role: 'system', content: system },
@@ -201,6 +238,7 @@ export async function runAgentLoop(
   const toolLog: ToolLogEntry[] = [];
   const toolLogWithArgs: Array<ToolLogEntry & { args?: Record<string, unknown> }> = [];
   const modified = new Set<string>();
+  const fileDiffs: FileDiffSnippet[] = [];
   const readCache = new Map<string, boolean>();
   let finalContent = '';
   let finalReasoning = '';
@@ -260,7 +298,7 @@ export async function runAgentLoop(
 
     const turn = await chatTurnStream(
       agent,
-      pruneMessages(messages),
+      pruneMessages(messages, harnessDigest),
       useTools,
       turnOpts,
       (content, reasoning) => {
@@ -285,7 +323,14 @@ export async function runAgentLoop(
     let roundHadWrite = false;
     let roundHadRead = false;
 
-    for (const tc of calls) {
+    type CallJob = {
+      tc: (typeof calls)[number];
+      name: string;
+      args: Record<string, unknown>;
+      label: string;
+    };
+
+    const jobs: CallJob[] = calls.map((tc) => {
       const name = tc.function?.name || '';
       let args: Record<string, unknown> = {};
       try {
@@ -293,29 +338,78 @@ export async function runAgentLoop(
       } catch {
         args = {};
       }
-
       if (HARNESS_WRITE_TOOLS.has(name)) roundHadWrite = true;
-      else roundHadRead = true;
+      else if (READ_ONLY_TOOLS.has(name) || name) roundHadRead = true;
+      return { tc, name, args, label: toolLabel(name, args) };
+    });
 
-      const res = await executeTool(project, name, args, readCache, workRoot);
+    const runOne = async (
+      job: CallJob,
+    ): Promise<{ output: string; ok: boolean; diff?: FileDiffSnippet }> => {
+      throwIfAborted(signal);
+      onEvent({
+        type: 'tool_start',
+        name: job.name,
+        label: job.label,
+        path: String(job.args.path || ''),
+      });
+
+      if (job.name === 'delete_file') {
+        const pathHint = String(job.args.path || '');
+        const okConfirm = confirmAction
+          ? await confirmAction(`确认删除文件「${pathHint}」？此操作不可撤销。`)
+          : true;
+        if (!okConfirm) {
+          return { ok: false, output: '用户取消了删除操作' };
+        }
+      }
+
+      return executeTool(project, job.name, job.args, readCache, workRoot);
+    };
+
+    // 本轮若全是只读工具则并行，缩短墙钟时间；含写入则按序执行保一致性
+    const allReadOnly = jobs.every((j) => READ_ONLY_TOOLS.has(j.name));
+    const settled: Array<{ ok: boolean; output: string; diff?: FileDiffSnippet }> = new Array(
+      jobs.length,
+    );
+
+    if (allReadOnly && jobs.length > 1) {
+      const parts = await Promise.all(jobs.map((job) => runOne(job)));
+      parts.forEach((res, i) => {
+        settled[i] = res;
+      });
+    } else {
+      for (let i = 0; i < jobs.length; i++) {
+        settled[i] = await runOne(jobs[i]);
+      }
+    }
+
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i];
+      const res = settled[i];
       const entry: ToolLogEntry = {
-        name,
-        label: toolLabel(name, args),
+        name: job.name,
+        label: job.label,
         ok: res.ok,
-        path: String(args.path || ''),
+        path: String(job.args.path || ''),
       };
       toolLog.push(entry);
-      toolLogWithArgs.push({ ...entry, args });
+      toolLogWithArgs.push({ ...entry, args: job.args });
       onEvent({ type: 'tool', entry });
 
-      if (res.ok && HARNESS_WRITE_TOOLS.has(name)) {
-        const g = guardPath(String(args.path || ''), workRoot, true);
+      if (res.ok && HARNESS_WRITE_TOOLS.has(job.name)) {
+        const g = guardPath(String(job.args.path || ''), workRoot, true);
         if (g.ok) modified.add(g.rel);
+      }
+      if (res.diff) {
+        const i = fileDiffs.findIndex((d) => d.path === res.diff!.path);
+        if (i >= 0) fileDiffs[i] = res.diff;
+        else fileDiffs.push(res.diff);
       }
 
       messages.push({
         role: 'tool',
-        tool_call_id: tc.id,
+        tool_call_id: job.tc.id,
         content: res.output,
       });
     }
@@ -335,6 +429,7 @@ export async function runAgentLoop(
     reasoning: finalReasoning || undefined,
     toolLog,
     modifiedFiles: [...modified],
+    fileDiffs: fileDiffs.length ? fileDiffs : undefined,
     harnessDigest: updatedDigest,
   };
   onEvent({ type: 'done', result });

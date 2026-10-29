@@ -138,8 +138,13 @@ public class FtpPlugin extends Plugin {
         new Thread(() -> {
             try {
                 FTPClient ftp = client(call);
-                if (!ftp.deleteFile(remotePath)) {
-                    throw new RuntimeException("deleteFile failed");
+                // 先删文件；失败则尝试删空目录（递归清空由 JS 侧负责）
+                boolean ok = ftp.deleteFile(remotePath);
+                if (!ok) {
+                    ok = ftp.removeDirectory(remotePath);
+                }
+                if (!ok) {
+                    throw new RuntimeException("deleteFile/removeDirectory failed");
                 }
                 ftp.logout();
                 ftp.disconnect();

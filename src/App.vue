@@ -18,13 +18,17 @@ onMounted(async () => {
   bootstrapping.value = false;
 
   const handle = await CapApp.addListener('backButton', ({ canGoBack }) => {
-    const overlay = document.querySelector('.sheet-overlay:not([hidden]), .preview-overlay');
-    if (overlay) {
+    // 优先关最上层弹层（含计划确认 / 历史抽屉 / 预览）
+    const overlays = [
+      ...document.querySelectorAll('.sheet-overlay, .preview-overlay, .history-drawer-overlay'),
+    ] as HTMLElement[];
+    const overlay = overlays.filter((el) => el.offsetParent !== null || el.style.display !== 'none').pop();
+    if (overlay && overlay.offsetParent !== null) {
       const closeBtn = overlay.querySelector(
-        '.sheet-header .btn, .history-drawer-header .btn, .preview-header .btn',
+        '[data-sheet-close], .sheet-header .btn, .history-drawer-header .btn, .preview-header .btn',
       ) as HTMLElement | null;
       if (closeBtn) closeBtn.click();
-      else (overlay as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      else overlay.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       return;
     }
     if (canGoBack) {
@@ -52,24 +56,27 @@ onUnmounted(() => {
     </div>
     <template v-else>
       <router-view />
-      <nav class="tab-bar">
-        <router-link to="/">
-          <span class="tab-icon" aria-hidden="true">⌂</span>
-          <span>首页</span>
+      <nav class="tab-bar" aria-label="主导航">
+        <!-- 首页必须 exact，避免 /chat 等子路径时双高亮 -->
+        <router-link v-slot="{ href, navigate, isExactActive }" to="/" custom>
+          <a :href="href" :class="{ active: isExactActive }" @click="navigate">
+            <span class="tab-icon" aria-hidden="true">⌂</span>
+            <span>首页</span>
+          </a>
         </router-link>
-        <router-link to="/chat">
+        <router-link to="/chat" active-class="active" exact-active-class="active">
           <span class="tab-icon" aria-hidden="true">◉</span>
           <span>对话</span>
         </router-link>
-        <router-link to="/projects">
+        <router-link to="/projects" active-class="active" exact-active-class="active">
           <span class="tab-icon" aria-hidden="true">▤</span>
           <span>项目</span>
         </router-link>
-        <router-link to="/ftp">
+        <router-link to="/ftp" active-class="active" exact-active-class="active">
           <span class="tab-icon" aria-hidden="true">⇪</span>
           <span>FTP</span>
         </router-link>
-        <router-link to="/settings">
+        <router-link to="/settings" active-class="active" exact-active-class="active">
           <span class="tab-icon" aria-hidden="true">⚙</span>
           <span>设置</span>
         </router-link>

@@ -10,10 +10,12 @@ import {
   deleteProjectSandbox,
 } from '@/services/localFs';
 import { ftpList } from '@/plugins/ftp';
+import { useChatStore } from '@/stores/chat';
 
 const route = useRoute();
 const router = useRouter();
 const store = useProjectsStore();
+const chat = useChatStore();
 
 const project = computed(() => store.projects.find((p) => p.id === route.params.id));
 const formReady = ref(false);
@@ -39,6 +41,7 @@ const form = reactive({
   pathPrefix: '',
   ftpPassive: true,
   ftpSecure: false,
+  rules: '',
 });
 
 function hydrateForm() {
@@ -55,6 +58,7 @@ function hydrateForm() {
   form.pathPrefix = project.value.pathPrefix || '';
   form.ftpPassive = project.value.ftp.passive !== false;
   form.ftpSecure = Boolean(project.value.ftp.secure);
+  form.rules = project.value.rules || '';
   formReady.value = true;
   missing.value = false;
 }
@@ -158,6 +162,7 @@ async function save() {
     await store.updateProject(project.value.id, {
       name: form.name,
       pathPrefix: form.pathPrefix,
+      rules: form.rules.trim(),
       ftp: {
         ...project.value.ftp,
         host: form.ftpHost,
@@ -180,14 +185,16 @@ async function remove() {
   if (!project.value) return;
   if (
     !confirm(
-      '确定删除该项目配置？可选同时清理 App 沙盒缓存；不会删除手机上的原文件夹。',
+      '确定删除该项目配置？可选同时清理 App 沙盒缓存与会话记录；不会删除手机上的原文件夹。',
     )
   ) {
     return;
   }
   const cleanSandbox = confirm('是否同时删除 App 内该项目的沙盒缓存文件？');
+  const cleanChat = confirm('是否同时删除该项目的对话会话与记录？');
   const id = project.value.id;
   if (cleanSandbox) await deleteProjectSandbox(id);
+  if (cleanChat) await chat.purgeProjectSessions(id);
   await store.removeProject(id);
   router.push('/projects');
 }
@@ -226,6 +233,14 @@ async function remove() {
         <router-link to="/settings">全局设置</router-link>
         中配置，所有项目共用。
       </p>
+      <div class="field" style="margin-top:12px">
+        <label>项目 Rules（可选）</label>
+        <textarea
+          v-model="form.rules"
+          rows="4"
+          placeholder="写入本项目约定（编码风格、目录约束等）。留空则自动尝试读取沙盒 AGENTS.md / RULES.md / .cursorrules"
+        />
+      </div>
     </div>
 
     <div class="card">

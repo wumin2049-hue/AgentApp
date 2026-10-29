@@ -7,6 +7,8 @@ import {
   ftpDownloadFile,
   ftpDeleteRemote,
   ftpMkdirRemote,
+  ftpListFilesRecursive,
+  ftpDeleteRecursive,
 } from '@/plugins/ftp';
 import {
   listLocalEntries,
@@ -236,20 +238,33 @@ async function batchUploadDir() {
   }
 }
 
-async function batchPullDir() {
+async function batchPullDir(deep = false) {
   if (!project.value?.ftp.host) {
     err.value = '请先配置 FTP';
     return;
   }
-  const files = remoteEntries.value.filter((e) => !e.isDirectory);
-  if (!files.length) {
-    okMsg.value = '当前远程目录没有可拉取的文件（不含子目录）';
-    return;
+  if (deep) {
+    if (
+      !confirm(
+        '递归拉取将包含所有子目录文件（最多 300 个）。流量较大且可能覆盖本地同名文件，是否继续？',
+      )
+    ) {
+      return;
+    }
   }
   busy.value = true;
   err.value = '';
   okMsg.value = '';
   try {
+    const files = deep
+      ? await ftpListFilesRecursive(project.value.ftp, remotePath.value || '/', 300)
+      : remoteEntries.value.filter((e) => !e.isDirectory);
+    if (!files.length) {
+      okMsg.value = deep
+        ? '该目录及子目录下没有可拉取的文件'
+        : '当前远程目录没有可拉取的文件（不含子目录）';
+      return;
+    }
     let ok = 0;
     const failed: string[] = [];
     for (const entry of files) {
@@ -267,10 +282,13 @@ async function batchPullDir() {
         failed.push(`${entry.name}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    okMsg.value = `已拉取 ${ok}/${files.length} 个文件到本地（仅当前目录）`;
+    okMsg.value = deep
+      ? `已递归拉取 ${ok}/${files.length} 个文件到本地`
+      : `已拉取 ${ok}/${files.length} 个文件到本地（仅当前目录）`;
     if (failed.length) {
       err.value = `失败 ${failed.length} 个：${failed.slice(0, 3).join('；')}${failed.length > 3 ? '…' : ''}`;
     }
+    if (deep) await refresh();
   } catch (e) {
     err.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -375,10 +393,31 @@ async function pullRemoteToLocal(entry: FtpEntry) {
 async function deleteRemote(entry: FtpEntry) {
   if (!project.value) return;
   if (entry.isDirectory) {
-    err.value = '暂不支持直接删除远程目录，请先清空其中文件';
+    if (
+      !confirm(
+        `递归删除远程目录「${entry.name}」及其全部内容？此操作不可恢复。`,
+      )
+    ) {
+      return;
+    }
+    busy.value = true;
+    err.value = '';
+    try {
+      const r = await ftpDeleteRecursive(project.value.ftp, entry.path, true);
+      okMsg.value = `已删除远程项 ${r.deleted} 个`;
+      if (r.errors.length) {
+        err.value = `部分失败 ${r.errors.length}：${r.errors.slice(0, 2).join('；')}`;
+      }
+      pickedRemote.value = null;
+      await refresh();
+    } catch (e) {
+      err.value = e instanceof Error ? e.message : String(e);
+    } finally {
+      busy.value = false;
+    }
     return;
   }
-  if (!confirm(`删除远程文件 ${entry.name}？`)) return;
+  if (!confirm(`删除远程文件 ${entry.name}？此操作不可恢复。`)) return;
   busy.value = true;
   err.value = '';
   try {
@@ -467,11 +506,30 @@ onMounted(async () => {
       <div class="batch-bar">
         <template v-if="tab === 'local'">
           <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="syncFromPhone">同步手机</button>
-          <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="batchUploadDir">全部上传（递归）</button>
+          <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="batchUploadDir" title="含当前目录及子目录全部本地文件">
+            全部上传（递归）
+          </button>
           <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="mkdirHere">新建夹</button>
         </template>
         <template v-else>
-          <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="batchPullDir">全部拉取（当前目录）</button>
+          <button
+            class="btn btn-ghost btn-sm"
+            type="button"
+            :disabled="busy"
+            @click="batchPullDir(false)"
+            title="仅拉取当前远程目录下的文件，不含子文件夹"
+          >
+            拉取本层
+          </button>
+          <button
+            class="btn btn-ghost btn-sm"
+            type="button"
+            :disabled="busy"
+            @click="batchPullDir(true)"
+            title="递归拉取子目录（最多 300 文件）"
+          >
+            递归拉取
+          </button>
           <button class="btn btn-ghost btn-sm" type="button" :disabled="busy" @click="mkdirHere">新建夹</button>
         </template>
       </div>
@@ -574,7 +632,7 @@ onMounted(async () => {
       <div class="preview-panel">
         <div class="preview-header">
           <strong>{{ previewTitle }}</strong>
-          <button class="btn btn-ghost btn-sm" type="button" @click="previewOpen = false">关闭</button>
+          <button class="btn btn-ghost btn-sm" type="button" data-sheet-close @click="previewOpen = false">关闭</button>
         </div>
         <pre class="preview-body">{{ previewContent }}</pre>
       </div>

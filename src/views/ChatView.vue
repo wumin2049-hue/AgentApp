@@ -8,9 +8,13 @@ import { runAgentLoop } from '@/services/agentLoop';
 import { getModifiedFiles, removeModifiedFiles, exportModifiedToPhone, listLocalEntries } from '@/services/localFs';
 import { ftpUploadModifiedProject } from '@/plugins/ftp';
 import { parseSlashCommand, runSlashCommand } from '@/api/mediaRelay';
+import { chatTurnStream } from '@/api/agentServer';
 import { scopeLabel } from '@/services/projectScope';
+import { compressChatHistory } from '@/services/sessionSummary';
+import { useFocusTrap } from '@/composables/useFocusTrap';
 import ChatMessage from '@/components/ChatMessage.vue';
 import { nextTick } from 'vue';
+import { Preferences } from '@capacitor/preferences';
 
 const router = useRouter();
 const projects = useProjectsStore();
@@ -38,6 +42,7 @@ const projectSheetOpen = ref(false);
 const historyDrawerOpen = ref(false);
 const inputEl = ref<HTMLTextAreaElement | null>(null);
 const messagesEndEl = ref<HTMLElement | null>(null);
+const chatMainEl = ref<HTMLElement | null>(null);
 const abortCtl = ref<AbortController | null>(null);
 const dockPad = ref(0);
 const toolDetailOpen = ref(false);
@@ -45,6 +50,27 @@ const modifiedSheetOpen = ref(false);
 const selectedModified = ref<string[]>([]);
 const ftpProgress = ref('');
 const ftpUploading = ref(false);
+/** 用户贴底时才自动跟滚 */
+const stickToBottom = ref(true);
+const showJumpBottom = ref(false);
+const activeToolLabel = ref('');
+const atSuggestOpen = ref(false);
+const atSuggestPaths = ref<string[]>([]);
+const planMode = ref(false);
+const planSheetOpen = ref(false);
+const pendingPlanText = ref('');
+const expandedDiffPath = ref('');
+const compressBusy = ref(false);
+let planDecisionResolve: ((ok: boolean) => void) | null = null;
+let scrollRaf = 0;
+
+const PLAN_MODE_KEY = 'mincode_plan_mode';
+
+useFocusTrap(historyDrawerOpen, '#history-drawer-panel');
+useFocusTrap(projectSheetOpen, '#project-sheet-panel');
+useFocusTrap(toolDetailOpen, '#tool-detail-panel');
+useFocusTrap(modifiedSheetOpen, '#modified-sheet-panel');
+useFocusTrap(planSheetOpen, '#plan-sheet-panel');
 
 const lastAssistantId = computed(() => {
   for (let i = chat.messages.length - 1; i >= 0; i--) {
@@ -194,9 +220,130 @@ function onProjectSheetKeydown(e: KeyboardEvent) {
   }
 }
 
-async function scrollToBottom() {
+function isNearBottom(el: HTMLElement, px = 96): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= px;
+}
+
+function onChatScroll() {
+  const el = chatMainEl.value;
+  if (!el) return;
+  stickToBottom.value = isNearBottom(el);
+  showJumpBottom.value = !stickToBottom.value && chat.messages.length > 0;
+}
+
+async function scrollToBottom(force = false) {
+  if (!force && !stickToBottom.value) {
+    showJumpBottom.value = true;
+    return;
+  }
   await nextTick();
-  messagesEndEl.value?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  const el = chatMainEl.value;
+  if (el) {
+    el.scrollTop = el.scrollHeight;
+  } else {
+    messagesEndEl.value?.scrollIntoView({ behavior: 'auto', block: 'end' });
+  }
+  stickToBottom.value = true;
+  showJumpBottom.value = false;
+}
+
+function scheduleScrollToBottom() {
+  if (scrollRaf) return;
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = 0;
+    void scrollToBottom(false);
+  });
+}
+
+function jumpToBottom() {
+  void scrollToBottom(true);
+}
+
+function insertAtPath(path: string) {
+  const p = path.replace(/^\/+/, '');
+  const cur = input.value;
+  const prefix = cur && !/\s$/.test(cur) ? `${cur} ` : cur;
+  input.value = `${prefix}@${p} `;
+  atSuggestOpen.value = false;
+  focusChatInput();
+}
+
+async function openAtSuggest() {
+  if (!project.value) return;
+  const fromDigest = [
+    ...chat.harnessDigest.read_files,
+    ...chat.harnessDigest.modified_files,
+  ].filter(Boolean);
+  const dirs = topDirs.value.map((d) => (chat.workRoot ? `${chat.workRoot}/${d}` : d));
+  try {
+    const entries = await listLocalEntries(project.value, chat.workRoot || '');
+    const files = entries
+      .filter((e) => !e.isDirectory)
+      .slice(0, 24)
+      .map((e) => (chat.workRoot ? `${chat.workRoot}/${e.name}` : e.name));
+    atSuggestPaths.value = [...new Set([...fromDigest.slice(-12), ...dirs, ...files])].slice(0, 28);
+  } catch {
+    atSuggestPaths.value = [...new Set([...fromDigest.slice(-12), ...dirs])].slice(0, 28);
+  }
+  atSuggestOpen.value = true;
+}
+
+function onInputAtTrigger() {
+  const t = input.value;
+  if (t.endsWith('@') || /(?:^|\s)@$/.test(t)) {
+    void openAtSuggest();
+  }
+}
+
+function mediaSlashHint(text: string): string {
+  const slash = parseSlashCommand(text);
+  if (!slash) return '';
+  const model = (agentSettings.config.model || '').toLowerCase();
+  if (slash.name === 'img' || slash.name === 'img-async') {
+    if (!/image|img|vision|flux|sdxl|dall/.test(model)) {
+      return '当前默认模型可能不含生图能力，若失败请在设置中切换 image 模型';
+    }
+  }
+  if (slash.name === 'video' || slash.name === 'video-quote') {
+    if (!/video|veo|kling|runway/.test(model)) {
+      return '当前默认模型可能不含视频能力，若失败请切换 video 模型';
+    }
+  }
+  return '';
+}
+
+async function persistPlanMode() {
+  await Preferences.set({ key: PLAN_MODE_KEY, value: planMode.value ? '1' : '0' });
+}
+
+function waitPlanDecision(): Promise<boolean> {
+  return new Promise((resolve) => {
+    planDecisionResolve = resolve;
+  });
+}
+
+function approvePlan() {
+  planSheetOpen.value = false;
+  document.body.style.overflow = historyDrawerOpen.value || projectSheetOpen.value ? 'hidden' : '';
+  planDecisionResolve?.(true);
+  planDecisionResolve = null;
+}
+
+function rejectPlan() {
+  planSheetOpen.value = false;
+  document.body.style.overflow = historyDrawerOpen.value || projectSheetOpen.value ? 'hidden' : '';
+  planDecisionResolve?.(false);
+  planDecisionResolve = null;
+}
+
+function toggleDiff(path: string) {
+  expandedDiffPath.value = expandedDiffPath.value === path ? '' : path;
+}
+
+function diffKindLabel(kind?: string): string {
+  if (kind === 'write') return '写入';
+  if (kind === 'delete') return '删除';
+  return '替换';
 }
 
 function stopGeneration() {
@@ -213,6 +360,38 @@ function onViewportResize() {
 function confirmClearSession() {
   if (!window.confirm('清空当前会话的全部消息？此操作不可恢复。')) return;
   void chat.clear();
+}
+
+async function compressContext() {
+  if (busy.value || chat.streaming || compressBusy.value) return;
+  if (chat.messages.length < 12) {
+    chat.setError('消息较少，暂无需压缩');
+    return;
+  }
+  if (
+    !window.confirm(
+      '将较早对话压缩为摘要以节省上下文（保留首条与最近若干轮）。是否继续？',
+    )
+  ) {
+    return;
+  }
+  compressBusy.value = true;
+  chat.setError('');
+  try {
+    const next = await compressChatHistory(
+      agentSettings.agentConfig,
+      chat.messages,
+      chat.harnessDigest,
+      8,
+    );
+    await chat.replaceMessages(next);
+    statusMsg.value = '';
+    void scrollToBottom(true);
+  } catch (e) {
+    chat.setError(e instanceof Error ? e.message : String(e));
+  } finally {
+    compressBusy.value = false;
+  }
 }
 
 async function loadTopDirs() {
@@ -311,11 +490,17 @@ onMounted(async () => {
     workRootInput.value = chat.workRoot;
   }
   await loadTopDirs();
+  try {
+    const pm = await Preferences.get({ key: PLAN_MODE_KEY });
+    planMode.value = pm.value === '1';
+  } catch {
+    planMode.value = false;
+  }
   window.addEventListener('keydown', onGlobalKeydown);
   window.visualViewport?.addEventListener('resize', onViewportResize);
   window.visualViewport?.addEventListener('scroll', onViewportResize);
   focusChatInput();
-  void scrollToBottom();
+  void scrollToBottom(true);
 });
 
 onUnmounted(() => {
@@ -324,12 +509,15 @@ onUnmounted(() => {
   window.visualViewport?.removeEventListener('scroll', onViewportResize);
   document.body.style.overflow = '';
   abortCtl.value?.abort();
+  if (scrollRaf) cancelAnimationFrame(scrollRaf);
+  planDecisionResolve?.(false);
+  planDecisionResolve = null;
 });
 
 watch(
   () => chat.messages.length,
   () => {
-    void scrollToBottom();
+    scheduleScrollToBottom();
   },
 );
 
@@ -373,6 +561,12 @@ async function send() {
   busy.value = true;
   chat.setStreaming(true);
   statusMsg.value = '';
+  activeToolLabel.value = '';
+  atSuggestOpen.value = false;
+  stickToBottom.value = true;
+
+  const mediaHint = mediaSlashHint(text);
+  if (mediaHint) statusMsg.value = mediaHint;
 
   const prior = chat.messages
     .filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -382,7 +576,7 @@ async function send() {
   chat.pushUser(text);
   const assistantId = chat.beginAssistant();
   input.value = '';
-  void scrollToBottom();
+  void scrollToBottom(true);
 
   const ctl = new AbortController();
   abortCtl.value = ctl;
@@ -405,17 +599,77 @@ async function send() {
       return;
     }
 
+    let taskText = text;
+    if (planMode.value) {
+      statusMsg.value = '制定计划中（尚未改文件）…';
+      const planTurn = await chatTurnStream(
+        agentSettings.agentConfig,
+        [
+          {
+            role: 'system',
+            content:
+              '你是代码任务规划助手。只输出简短编号步骤计划（具体到可能改动的文件路径），不要调用工具、不要输出大段代码。',
+          },
+          ...prior.slice(-8),
+          { role: 'user', content: `请为以下任务制定可执行计划：\n${text}` },
+        ],
+        [],
+        {
+          model: agentSettings.config.model || '',
+          max_tokens: 2048,
+          temperature: 0.3,
+          signal: ctl.signal,
+        },
+        (content) => {
+          chat.updateAssistant(assistantId, content);
+          scheduleScrollToBottom();
+        },
+      );
+      pendingPlanText.value = (planTurn.content || '').trim();
+      if (!pendingPlanText.value) {
+        throw new Error('未能生成计划，请关闭计划模式后重试，或换更明确的描述');
+      }
+      chat.updateAssistant(assistantId, `## 计划（待确认）\n\n${pendingPlanText.value}`);
+      planSheetOpen.value = true;
+      document.body.style.overflow = 'hidden';
+      statusMsg.value = '请确认计划后再执行';
+      const approved = await waitPlanDecision();
+      if (!approved) {
+        chat.updateAssistant(
+          assistantId,
+          `## 计划（已取消）\n\n${pendingPlanText.value}\n\n（未执行任何文件修改）`,
+        );
+        await chat.persist();
+        return;
+      }
+      taskText =
+        `【已确认执行计划】\n${pendingPlanText.value}\n\n【用户原任务】\n${text}`;
+      chat.updateAssistant(
+        assistantId,
+        `## 计划\n\n${pendingPlanText.value}\n\n---\n\n执行中…`,
+      );
+      statusMsg.value = '按计划执行…';
+    }
+
     const result = await runAgentLoop(
       project.value,
       agentSettings.agentConfig,
-      text,
+      taskText,
       (e) => {
         if (e.type === 'delta') {
-          chat.updateAssistant(assistantId, e.content, e.reasoning);
-          void scrollToBottom();
+          const body = planMode.value && pendingPlanText.value
+            ? `## 计划\n\n${pendingPlanText.value}\n\n---\n\n${e.content}`
+            : e.content;
+          chat.updateAssistant(assistantId, body, e.reasoning);
+          scheduleScrollToBottom();
+        }
+        if (e.type === 'tool_start') {
+          activeToolLabel.value = e.label;
+          statusMsg.value = `执行：${e.label}`;
         }
         if (e.type === 'tool') {
           chat.toolLog.push(e.entry);
+          activeToolLabel.value = '';
         }
         if (e.type === 'round') {
           statusMsg.value = e.forceWrite ? `第 ${e.round} 轮 · 强制落盘…` : `第 ${e.round} 轮…`;
@@ -426,12 +680,21 @@ async function send() {
       chat.workRoot,
       chat.harnessDigest,
       ctl.signal,
+      (msg) => window.confirm(msg),
     );
+    if (planMode.value && pendingPlanText.value) {
+      result.content =
+        `## 计划\n\n${pendingPlanText.value}\n\n---\n\n${result.content || ''}`;
+    }
     chat.applyResult(result, assistantId);
     await chat.persist();
   } catch (e) {
     const aborted = e instanceof DOMException && e.name === 'AbortError';
-    const msg = aborted ? '已停止生成' : e instanceof Error ? e.message : String(e);
+    const msg = aborted
+      ? '已停止生成（可修改提示后重新发送）'
+      : e instanceof Error
+        ? e.message
+        : String(e);
     chat.setError(msg);
     chat.fillAssistantError(assistantId, msg);
     await chat.persist();
@@ -440,8 +703,9 @@ async function send() {
     busy.value = false;
     chat.setStreaming(false);
     statusMsg.value = '';
+    activeToolLabel.value = '';
     focusChatInput();
-    void scrollToBottom();
+    void scrollToBottom(true);
   }
 }
 
@@ -504,6 +768,7 @@ function closeToolDetail() {
 
 function openModifiedSheet() {
   selectedModified.value = [...turnModifiedList.value];
+  expandedDiffPath.value = '';
   ftpProgress.value = '';
   modifiedSheetOpen.value = true;
   document.body.style.overflow = 'hidden';
@@ -579,6 +844,11 @@ async function uploadSelectedToFtp() {
 
 function onGlobalKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
+    if (planSheetOpen.value) {
+      e.preventDefault();
+      rejectPlan();
+      return;
+    }
     if (modifiedSheetOpen.value) {
       e.preventDefault();
       closeModifiedSheet();
@@ -628,7 +898,12 @@ function onGlobalKeydown(e: KeyboardEvent) {
     </div>
   </header>
 
-  <main class="app-main chat-main">
+  <main
+    ref="chatMainEl"
+    class="app-main chat-main"
+    :aria-hidden="projectSheetOpen || historyDrawerOpen || toolDetailOpen || modifiedSheetOpen || planSheetOpen ? 'true' : undefined"
+    @scroll.passive="onChatScroll"
+  >
     <div v-if="!agentSettings.hasChatStorageRoot || !agentSettings.storageAccessOk" class="card card-warn">
       <p class="hint-text" style="margin:0">
         需要授权手机本地文件夹（读/写/列表）。系统会弹出目录选择器，请点「使用此文件夹」。未授权时无法读写代码与会话。
@@ -665,18 +940,42 @@ function onGlobalKeydown(e: KeyboardEvent) {
       <p class="hint-text">还没有项目，请先在「项目」页创建并绑定手机目录。</p>
     </div>
 
-    <p v-if="chat.nearMessageCap" class="hint-text" style="margin:8px 0">
-      提示：会话消息接近上限（{{ chat.messageCap }} 条），更早的消息保存时可能被截断。
+    <p v-if="chat.nearMessageCap" class="hint-text context-banner" style="margin:8px 0">
+      会话消息接近上限（{{ chat.messages.length }}/{{ chat.messageCap }}）。建议开新会话或压缩上下文。
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm"
+        style="margin-left:8px"
+        :disabled="busy || chat.streaming || compressBusy"
+        @click="compressContext"
+      >
+        {{ compressBusy ? '压缩中…' : '压缩上下文' }}
+      </button>
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm"
+        style="margin-left:8px"
+        :disabled="!canManageSessions"
+        @click="onNewSession"
+      >
+        开启新会话
+      </button>
+    </p>
+    <p v-if="harnessMemoryHint && !busy" class="hint-text" style="margin:4px 0 8px">
+      {{ harnessMemoryHint }}
     </p>
 
     <template v-for="m in chat.messages" :key="m.id">
       <!-- 工具/读文件记录：放在最终 AI 回复气泡之上 -->
       <div
-        v-if="m.id === lastAssistantId && chat.toolLog.length"
+        v-if="m.id === lastAssistantId && (chat.toolLog.length || activeToolLabel)"
         class="tool-log-panel"
       >
         <div class="tool-log-head">
-          <span class="tool-log-title">读取与工具记录 · {{ chat.toolLog.length }}</span>
+          <span class="tool-log-title">
+            读取与工具记录 · {{ chat.toolLog.length }}
+            <template v-if="activeToolLabel"> · 进行中</template>
+          </span>
         </div>
         <div class="tool-log-scroll">
           <div
@@ -687,6 +986,9 @@ function onGlobalKeydown(e: KeyboardEvent) {
           >
             {{ t.ok ? '✓' : '✕' }} {{ t.label }}
           </div>
+          <div v-if="activeToolLabel" class="tool-line tool-line--active">
+            … {{ activeToolLabel }}
+          </div>
         </div>
         <button type="button" class="tool-log-detail" @click="openToolDetail">
           查看详情
@@ -695,7 +997,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
 
       <ChatMessage
         :message="m"
-        :streaming="chat.streaming && m.role === 'assistant' && !m.content"
+        :streaming="chat.streaming && m.id === lastAssistantId && m.role === 'assistant'"
         :deletable="!busy && !chat.streaming && agentSettings.hasChatStorageRoot"
         @delete="onDeleteMessage"
       />
@@ -726,19 +1028,56 @@ function onGlobalKeydown(e: KeyboardEvent) {
     <div ref="messagesEndEl" aria-hidden="true" />
   </main>
 
+  <button
+    v-if="showJumpBottom"
+    type="button"
+    class="jump-bottom-btn"
+    :style="dockPad ? { bottom: `calc(128px + var(--safe-b) + ${dockPad}px)` } : undefined"
+    @click="jumpToBottom"
+  >
+    回到底部
+  </button>
+
   <div class="chat-input-dock" :style="dockPad ? { bottom: `calc(64px + var(--safe-b) + ${dockPad}px)` } : undefined">
     <div class="chat-input-wrap chat-input-wrap--compact">
+      <div v-if="atSuggestOpen && atSuggestPaths.length" class="at-suggest">
+        <div class="at-suggest-head">
+          <span>插入路径 @</span>
+          <button type="button" class="btn btn-ghost btn-sm" @click="atSuggestOpen = false">关闭</button>
+        </div>
+        <div class="at-suggest-list">
+          <button
+            v-for="p in atSuggestPaths"
+            :key="p"
+            type="button"
+            class="at-suggest-item"
+            @click="insertAtPath(p)"
+          >
+            {{ p }}
+          </button>
+        </div>
+      </div>
       <div class="chat-input-bar">
+        <button
+          type="button"
+          class="btn btn-ghost btn-at"
+          title="引用文件路径"
+          :disabled="inputLocked || !project"
+          @click="openAtSuggest"
+        >
+          @
+        </button>
         <textarea
           ref="inputEl"
           v-model="input"
-          placeholder="描述要改什么… 或 /img /video 提示词"
+          placeholder="描述要改什么… @ 引用路径 · /img /video"
           :readonly="inputLocked"
           enterkeyhint="send"
           autocomplete="off"
           autocapitalize="sentences"
           rows="2"
           @keydown.enter.exact.prevent="send"
+          @input="onInputAtTrigger"
           @pointerdown.stop
         />
         <button
@@ -762,6 +1101,20 @@ function onGlobalKeydown(e: KeyboardEvent) {
       <p v-if="sendBlockedReason && input.trim()" class="hint-text err" style="margin:6px 4px 0;font-size:12px">
         {{ sendBlockedReason }}
       </p>
+      <div class="chat-dock-meta">
+        <label class="check-row chat-dock-plan">
+          <input
+            type="checkbox"
+            :checked="planMode"
+            :disabled="busy || chat.streaming"
+            @change="planMode = ($event.target as HTMLInputElement).checked; void persistPlanMode()"
+          />
+          计划模式
+        </label>
+        <span class="hint-text" style="margin:0;font-size:11px;opacity:.85">
+          对话等接口响应 · /img-async·/video 约 1.5s/2s 轮询
+        </span>
+      </div>
     </div>
   </div>
 
@@ -781,6 +1134,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
     @click.self="closeHistoryDrawer"
   >
     <aside
+      id="history-drawer-panel"
       class="history-drawer"
       role="dialog"
       aria-modal="true"
@@ -793,7 +1147,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
             {{ agentSettings.chatStorageRoot?.label || '未选择存储目录' }}
           </span>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm" @click="closeHistoryDrawer">
+        <button type="button" class="btn btn-ghost btn-sm" data-sheet-close @click="closeHistoryDrawer">
           关闭
         </button>
       </div>
@@ -850,12 +1204,21 @@ function onGlobalKeydown(e: KeyboardEvent) {
     class="sheet-overlay"
     @click.self="closeProjectSheet"
   >
-    <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="项目与工作区">
+    <div id="project-sheet-panel" class="sheet-panel" role="dialog" aria-modal="true" aria-label="项目与工作区">
       <div class="sheet-header">
         <strong>项目与工作区</strong>
-        <button type="button" class="btn btn-ghost btn-sm" @click="closeProjectSheet">关闭</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-sheet-close @click="closeProjectSheet">关闭</button>
       </div>
       <div class="sheet-body">
+        <label class="check-row" style="margin-bottom:12px">
+          <input
+            type="checkbox"
+            :checked="planMode"
+            :disabled="busy || chat.streaming"
+            @change="planMode = ($event.target as HTMLInputElement).checked; void persistPlanMode()"
+          />
+          计划模式（先出步骤，确认后再改文件）
+        </label>
         <label class="field-label">当前项目</label>
         <select
           class="project-select"
@@ -959,6 +1322,14 @@ function onGlobalKeydown(e: KeyboardEvent) {
             <button
               class="btn btn-ghost btn-compact"
               type="button"
+              :disabled="busy || chat.streaming || compressBusy || chat.messages.length < 12"
+              @click="compressContext"
+            >
+              {{ compressBusy ? '压缩中…' : '压缩上下文' }}
+            </button>
+            <button
+              class="btn btn-ghost btn-compact"
+              type="button"
               :disabled="busy || chat.streaming || !chat.storageReady"
               @click="confirmClearSession"
             >
@@ -981,10 +1352,10 @@ function onGlobalKeydown(e: KeyboardEvent) {
     class="sheet-overlay"
     @click.self="closeToolDetail"
   >
-    <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="工具记录详情">
+    <div id="tool-detail-panel" class="sheet-panel" role="dialog" aria-modal="true" aria-label="工具记录详情">
       <div class="sheet-header">
         <strong>读取与工具记录</strong>
-        <button type="button" class="btn btn-ghost btn-sm" @click="closeToolDetail">关闭</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-sheet-close @click="closeToolDetail">关闭</button>
       </div>
       <div class="sheet-body">
         <div
@@ -1008,12 +1379,13 @@ function onGlobalKeydown(e: KeyboardEvent) {
     class="sheet-overlay"
     @click.self="closeModifiedSheet"
   >
-    <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="AI 修改的文件">
+    <div id="modified-sheet-panel" class="sheet-panel" role="dialog" aria-modal="true" aria-label="AI 修改的文件">
       <div class="sheet-header">
         <strong>AI 修改的文件</strong>
         <button
           type="button"
           class="btn btn-ghost btn-sm"
+          data-sheet-close
           :disabled="ftpUploading"
           @click="closeModifiedSheet"
         >
@@ -1038,15 +1410,29 @@ function onGlobalKeydown(e: KeyboardEvent) {
 
         <ul class="modified-list">
           <li v-for="f in turnModifiedList" :key="f" class="modified-item">
-            <label>
-              <input
-                type="checkbox"
-                :checked="selectedModified.includes(f)"
-                :disabled="ftpUploading"
-                @change="toggleModifiedFile(f)"
-              />
-              <span class="modified-path">{{ f }}</span>
-            </label>
+            <div class="modified-item-row">
+              <label>
+                <input
+                  type="checkbox"
+                  :checked="selectedModified.includes(f)"
+                  :disabled="ftpUploading"
+                  @change="toggleModifiedFile(f)"
+                />
+                <span class="modified-path">{{ f }}</span>
+              </label>
+              <button
+                v-if="chat.diffForPath(f)"
+                type="button"
+                class="btn btn-ghost btn-sm"
+                @click="toggleDiff(f)"
+              >
+                {{ expandedDiffPath === f ? '收起' : diffKindLabel(chat.diffForPath(f)?.kind) }}
+              </button>
+            </div>
+            <pre
+              v-if="expandedDiffPath === f && chat.diffForPath(f)?.unified"
+              class="diff-preview"
+            >{{ chat.diffForPath(f)?.unified }}</pre>
           </li>
         </ul>
 
@@ -1062,6 +1448,28 @@ function onGlobalKeydown(e: KeyboardEvent) {
         <p v-if="ftpProgress" class="hint-text" style="margin-top:10px;white-space:pre-wrap">
           {{ ftpProgress }}
         </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 计划确认门闸 -->
+  <div
+    v-if="planSheetOpen"
+    class="sheet-overlay"
+    @click.self="rejectPlan"
+  >
+    <div id="plan-sheet-panel" class="sheet-panel" role="dialog" aria-modal="true" aria-label="确认执行计划">
+      <div class="sheet-header">
+        <strong>确认计划</strong>
+        <button type="button" class="btn btn-ghost btn-sm" data-sheet-close @click="rejectPlan">取消</button>
+      </div>
+      <div class="sheet-body">
+        <p class="hint-text" style="margin:0 0 10px">确认后 Agent 才会按下列步骤读写文件。</p>
+        <pre class="plan-preview">{{ pendingPlanText }}</pre>
+        <div class="btn-row" style="margin-top:14px">
+          <button type="button" class="btn btn-ghost" @click="rejectPlan">取消</button>
+          <button type="button" class="btn btn-primary" @click="approvePlan">确认并执行</button>
+        </div>
       </div>
     </div>
   </div>

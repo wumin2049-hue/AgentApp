@@ -21,9 +21,9 @@ const active = computed(() => projects.active);
         <span class="card-title">当前项目</span>
         <div class="project-name">{{ active.name }}</div>
         <div class="card-meta">
-          <div class="meta-row"><span aria-hidden="true">📁</span><span>{{ active.localRootLabel }}</span></div>
-          <div class="meta-row"><span aria-hidden="true">🤖</span><span>{{ agentSettings.config.model || '未选模型' }}</span></div>
-          <div class="meta-row"><span aria-hidden="true">🌐</span><span>{{ agentSettings.config.apiBaseUrl || '未配置 API' }}</span></div>
+          <div class="meta-row"><span aria-hidden="true">目录</span><span>{{ active.localRootLabel }}</span></div>
+          <div class="meta-row"><span aria-hidden="true">模型</span><span>{{ agentSettings.config.model || '未选模型' }}</span></div>
+          <div class="meta-row"><span aria-hidden="true">API</span><span>{{ agentSettings.config.apiBaseUrl || '未配置 API' }}</span></div>
         </div>
         <div class="btn-row">
           <button class="btn btn-primary" @click="router.push('/chat')">开始改代码</button>
@@ -31,7 +31,7 @@ const active = computed(() => projects.active);
         </div>
       </template>
       <template v-else>
-        <p class="hint-text">还没有项目。请先在「设置」配置 API，再到「项目」创建并绑定手机目录。</p>
+        <p class="hint-text">还没有项目。请先在「设置」配置全局 Harness（API / Key / 模型），再到「项目」创建并绑定手机目录。</p>
         <button class="btn btn-primary btn-block" style="margin-top:14px" @click="router.push('/projects')">
           新建项目
         </button>

@@ -1,10 +1,23 @@
 import { defineStore } from 'pinia';
 import { Preferences } from '@capacitor/preferences';
-import type { ChatMessage, AgentTurnResult, HarnessDigest, ToolLogEntry, ChatSessionMeta } from '@/types';
-import { emptyDigest, loadHarnessDigest, saveHarnessDigest, clearHarnessDigest } from '@/services/harness';
+import type {
+  ChatMessage,
+  AgentTurnResult,
+  HarnessDigest,
+  ToolLogEntry,
+  ChatSessionMeta,
+  FileDiffSnippet,
+} from '@/types';
+import {
+  emptyDigest,
+  loadHarnessDigest,
+  saveHarnessDigest,
+  clearHarnessDigest,
+} from '@/services/harness';
 import { useAgentSettingsStore } from '@/stores/agentSettings';
 import {
   bumpSessionMeta,
+  deleteProjectChatTree,
   deleteSessionDir,
   ensureProjectSessions,
   MAX_MESSAGES,
@@ -46,6 +59,8 @@ export const useChatStore = defineStore('chat', {
     lastModified: [] as string[],
     /** 本轮 AI 实际改动的文件（用于回复下方弹窗） */
     turnModifiedFiles: [] as string[],
+    /** 本轮改动 diff 片段 */
+    turnFileDiffs: [] as FileDiffSnippet[],
     harnessDigest: emptyDigest() as HarnessDigest,
     error: '' as string,
     storageReady: false as boolean,
@@ -79,6 +94,7 @@ export const useChatStore = defineStore('chat', {
       this.projectId = projectId;
       this.toolLog = [];
       this.turnModifiedFiles = [];
+      this.turnFileDiffs = [];
       this.error = '';
       this.storageReady = false;
 
@@ -297,16 +313,50 @@ export const useChatStore = defineStore('chat', {
       await this.persist();
     },
 
-    clearHarnessMemory() {
+    async clearHarnessMemory() {
       this.harnessDigest = emptyDigest();
       if (this.projectId) {
+        clearHarnessDigest(this.projectId, this.sessionId);
         saveHarnessDigest(this.projectId, this.harnessDigest, this.sessionId);
+      }
+      // 写入会话真源（Preferences + SAF）
+      await this.persist();
+    },
+
+    /** 用摘要压缩较早消息，降低上下文体积 */
+    async replaceMessages(next: ChatMessage[]) {
+      this.messages = next;
+      await this.persist();
+    },
+
+    async purgeProjectSessions(projectId: string) {
+      if (!projectId) return;
+      try {
+        const root = this.requireStorageRoot();
+        await deleteProjectChatTree(root, projectId);
+      } catch {
+        /* 无存储目录时忽略 */
+      }
+      try {
+        await Preferences.remove({ key: `abs_chat_idx_v2_${projectId}` });
+        await Preferences.remove({ key: legacyChatKey(projectId) });
+        await Preferences.remove({ key: workRootKey(projectId) });
+      } catch {
+        /* ignore */
+      }
+      if (this.projectId === projectId) {
+        this.sessions = [];
+        this.sessionId = '';
+        this.messages = [];
+        this.lastModified = [];
+        this.storageReady = false;
       }
     },
 
     clearTurn() {
       this.toolLog = [];
       this.turnModifiedFiles = [];
+      this.turnFileDiffs = [];
       this.error = '';
     },
 
@@ -351,6 +401,7 @@ export const useChatStore = defineStore('chat', {
     applyResult(result: AgentTurnResult, assistantId?: string) {
       this.toolLog = result.toolLog;
       this.turnModifiedFiles = [...(result.modifiedFiles || [])];
+      this.turnFileDiffs = [...(result.fileDiffs || [])];
       // 累计本轮修改到会话 lastModified，避免覆盖历史轮次
       const merged = new Set([...this.lastModified, ...result.modifiedFiles]);
       this.lastModified = [...merged];
@@ -371,7 +422,12 @@ export const useChatStore = defineStore('chat', {
       if (!paths.length) return;
       const drop = new Set(paths);
       this.turnModifiedFiles = this.turnModifiedFiles.filter((f) => !drop.has(f));
+      this.turnFileDiffs = this.turnFileDiffs.filter((d) => !drop.has(d.path));
       this.lastModified = this.lastModified.filter((f) => !drop.has(f));
+    },
+
+    diffForPath(path: string): FileDiffSnippet | undefined {
+      return this.turnFileDiffs.find((d) => d.path === path);
     },
 
     setStreaming(v: boolean) {
