@@ -9,6 +9,10 @@ import {
   persistTreeUri,
   pickAndPersistDirectory,
   verifyTreeAccess,
+  writeTreeText,
+  readTreeText,
+  deleteTreePath,
+  listTreeDir,
 } from '@/plugins/project-storage';
 import type { ExportFilesResult, SyncTreeResult } from '@/plugins/project-storage/definitions';
 
@@ -20,6 +24,16 @@ function normRel(path: string): string {
 
 function storagePath(projectId: string, rel: string): string {
   return `${APP_DATA}/projects/${projectId}/${normRel(rel)}`;
+}
+
+/** 是否绑定了可实时写入的手机/本地工作区（Cursor 式落盘目标） */
+export function hasLiveWorkspace(project: WorkProject): boolean {
+  return Boolean(project.localRootUri?.trim());
+}
+
+export interface WriteProjectResult {
+  /** 已写入绑定的手机目录（或 local 工作区） */
+  phoneSynced: boolean;
 }
 
 export async function pickProjectFolder(): Promise<{ uri: string; label: string }> {
@@ -65,29 +79,17 @@ export async function syncProjectFiles(project: WorkProject): Promise<SyncTreeRe
   return result;
 }
 
-export async function readProjectFile(project: WorkProject, relPath: string): Promise<string> {
-  const rel = normRel(relPath);
-  try {
-    const r = await Filesystem.readFile({
-      path: storagePath(project.id, rel),
-      directory: Directory.Data,
-      encoding: Encoding.UTF8,
-    });
-    return typeof r.data === 'string' ? r.data : '';
-  } catch {
-    throw new Error(
-      `无法读取 ${rel}。请在「项目 → 同步到 App」把手机目录导入沙盒后再试。`,
-    );
-  }
+async function readSandboxFile(projectId: string, rel: string): Promise<string> {
+  const r = await Filesystem.readFile({
+    path: storagePath(projectId, rel),
+    directory: Directory.Data,
+    encoding: Encoding.UTF8,
+  });
+  return typeof r.data === 'string' ? r.data : '';
 }
 
-export async function writeProjectFile(
-  project: WorkProject,
-  relPath: string,
-  content: string,
-): Promise<void> {
-  const rel = normRel(relPath);
-  const full = storagePath(project.id, rel);
+async function writeSandboxFile(projectId: string, rel: string, content: string): Promise<void> {
+  const full = storagePath(projectId, rel);
   const dir = full.split('/').slice(0, -1).join('/');
   if (dir) {
     try {
@@ -104,32 +106,147 @@ export async function writeProjectFile(
   });
 }
 
-export async function deleteProjectFile(project: WorkProject, relPath: string): Promise<void> {
-  await Filesystem.deleteFile({
-    path: storagePath(project.id, normRel(relPath)),
-    directory: Directory.Data,
-  });
+export async function readProjectFile(project: WorkProject, relPath: string): Promise<string> {
+  const rel = normRel(relPath);
+  // 沙盒缓存优先（Agent 刚写入后立刻可读）
+  try {
+    return await readSandboxFile(project.id, rel);
+  } catch {
+    /* try live workspace */
+  }
+  if (hasLiveWorkspace(project)) {
+    try {
+      return await readTreeText(project.localRootUri, rel);
+    } catch {
+      /* fall through */
+    }
+  }
+  throw new Error(
+    `无法读取 ${rel}。请确认文件在手机工作区中，或先在「项目 → 同步到 App」导入后再试。`,
+  );
 }
 
-/** 递归删除沙盒内目录 */
+/**
+ * 写入文件：对齐 Cursor —— 绑定手机目录时立即落到手机（自动建父目录），
+ * 并镜像到沙盒供后续读/搜/FTP。一次对话可连续调用写入多个文件。
+ */
+export async function writeProjectFile(
+  project: WorkProject,
+  relPath: string,
+  content: string,
+): Promise<WriteProjectResult> {
+  const rel = normRel(relPath);
+  if (!rel || rel.includes('..')) {
+    throw new Error('非法文件路径');
+  }
+
+  let phoneSynced = false;
+  if (hasLiveWorkspace(project)) {
+    try {
+      // SAF writeTreeText 会递归创建父目录，支持 src/a/b/c.ts 这类深层路径
+      await writeTreeText(project.localRootUri, rel, content);
+      phoneSynced = true;
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
+      // 手机写失败时仍尝试写沙盒，并记入待写回队列，避免整轮白做
+      try {
+        await writeSandboxFile(project.id, rel, content);
+        await trackModified(project.id, rel);
+      } catch {
+        /* ignore secondary */
+      }
+      throw new Error(`写入手机失败（${rel}）：${reason}`);
+    }
+  }
+
+  try {
+    await writeSandboxFile(project.id, rel, content);
+  } catch (e) {
+    if (phoneSynced) {
+      // 手机已落盘，沙盒镜像失败不阻断（下次同步可补）
+      return { phoneSynced: true };
+    }
+    throw e instanceof Error ? e : new Error(String(e));
+  }
+
+  return { phoneSynced };
+}
+
+export async function deleteProjectFile(project: WorkProject, relPath: string): Promise<void> {
+  const rel = normRel(relPath);
+  let phoneErr: string | null = null;
+  if (hasLiveWorkspace(project)) {
+    try {
+      await deleteTreePath(project.localRootUri, rel);
+    } catch (e) {
+      phoneErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+  try {
+    await Filesystem.deleteFile({
+      path: storagePath(project.id, rel),
+      directory: Directory.Data,
+    });
+  } catch {
+    /* sandbox missing ok if phone deleted */
+  }
+  if (phoneErr && hasLiveWorkspace(project)) {
+    throw new Error(`删除手机文件失败（${rel}）：${phoneErr}`);
+  }
+}
+
+/** 递归删除目录（沙盒 + 手机工作区） */
 export async function deleteProjectDir(project: WorkProject, relPath: string): Promise<void> {
   const rel = normRel(relPath);
   if (!rel || rel.includes('..')) throw new Error('非法目录路径');
-  await Filesystem.rmdir({
-    path: storagePath(project.id, rel),
-    directory: Directory.Data,
-    recursive: true,
-  });
+  let phoneErr: string | null = null;
+  if (hasLiveWorkspace(project)) {
+    try {
+      await deleteTreePath(project.localRootUri, rel);
+    } catch (e) {
+      phoneErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+  try {
+    await Filesystem.rmdir({
+      path: storagePath(project.id, rel),
+      directory: Directory.Data,
+      recursive: true,
+    });
+  } catch {
+    /* sandbox missing ok */
+  }
+  if (phoneErr) {
+    throw new Error(`删除手机目录失败（${rel}）：${phoneErr}`);
+  }
 }
 
+/**
+ * 创建目录（递归）。手机侧通过占位文件确保父链存在后删除占位，
+ * 避免 SAF 无独立 mkdir API 时建不出空目录。
+ */
 export async function createLocalDir(project: WorkProject, relPath: string): Promise<void> {
   const rel = normRel(relPath);
-  if (!rel) throw new Error('目录名不能为空');
+  if (!rel || rel.includes('..')) throw new Error('目录名不能为空');
   await Filesystem.mkdir({
     path: storagePath(project.id, rel),
     directory: Directory.Data,
     recursive: true,
   });
+  if (!hasLiveWorkspace(project)) return;
+
+  const keep = `${rel}/.agentkeep`;
+  try {
+    await writeTreeText(project.localRootUri, keep, '');
+    try {
+      await deleteTreePath(project.localRootUri, keep);
+    } catch {
+      /* keep 可留，不影响使用 */
+    }
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    throw new Error(`创建手机目录失败（${rel}）：${reason}`);
+  }
 }
 
 /** 列出某目录下所有文件（递归，不含目录本身） */
@@ -191,26 +308,39 @@ export async function listLocalEntries(
 }
 
 export async function listProjectDir(project: WorkProject, relPath = ''): Promise<string[]> {
-  const base = storagePath(project.id, normRel(relPath));
+  const rel = normRel(relPath);
+  // 绑定手机工作区时以手机为准（与 Cursor 工作区一致），再合并沙盒未见项
+  const names = new Set<string>();
+  if (hasLiveWorkspace(project)) {
+    try {
+      for (const n of await listTreeDir(project.localRootUri, rel)) {
+        if (n && n !== '.agentkeep') names.add(n);
+      }
+    } catch {
+      /* fall through sandbox */
+    }
+  }
+
+  const base = storagePath(project.id, rel);
   try {
     const r = await Filesystem.readdir({ path: base, directory: Directory.Data });
-    return (r.files || []).map((f) => (typeof f === 'string' ? f : f.name));
+    for (const f of r.files || []) {
+      const name = typeof f === 'string' ? f : f.name;
+      if (name && !name.startsWith('.') && name !== '.agentkeep') names.add(name);
+    }
   } catch {
-    if (!relPath) {
+    if (!names.size) {
       const all = await listAllSandboxFiles(project.id);
-      if (all.length) {
-        const prefix = normRel(relPath);
-        const set = new Set<string>();
-        for (const f of all) {
-          const parts = f.split('/');
-          const top = parts[prefix ? prefix.split('/').length : 0];
-          if (top) set.add(top);
-        }
-        return [...set];
+      const prefix = rel;
+      for (const f of all) {
+        if (prefix && !(f === prefix || f.startsWith(prefix + '/'))) continue;
+        const rest = prefix ? f.slice(prefix.length).replace(/^\//, '') : f;
+        const top = rest.split('/')[0];
+        if (top) names.add(top);
       }
     }
-    return [];
   }
+  return [...names];
 }
 
 export async function grepProject(

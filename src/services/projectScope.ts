@@ -1,5 +1,6 @@
 import type { WorkProject } from '@/types';
 import { readProjectFile } from './localFs';
+import { agentWorkflowInstructions } from './harness';
 
 /** 规范化工具 path：去前导斜杠、禁止 .. 穿越 */
 export function normToolPath(path: string): string {
@@ -76,14 +77,17 @@ export function buildAgentSystemPrompt(
   const base =
     `你是移动端代码 Agent，正在项目「${projectName}」中工作。\n\n` +
     `【手机绑定目录】${localRootLabel}\n` +
-    `【沙盒项目根】/（所有工具 path 均相对此根，不得使用 .. 跳出项目）\n` +
+    `【工作区根】/（工具 path 相对此根；write_file 会立刻写入手机目录，并自动创建父文件夹）\n` +
     `【${wsLine}】\n\n` +
     `规则：\n` +
     `- 只能读写工作区内的文件\n` +
+    `- 每调用一次 write_file / search_replace 就真实写入一个文件（与 Cursor 相同），可连续写很多文件搭架构\n` +
+    `- 深层路径如 src/components/Foo.vue 会自动建目录，无需先 mkdir\n` +
     `- 修改后简要总结改了哪些文件\n` +
-    `- 优先 search_replace，避免无谓重复 read`;
+    `- 优先 search_replace，避免无谓重复 read\n` +
+    `- 用户要创建/修改时必须调用写入工具真正落盘，禁止只输出计划或代码块就结束`;
 
-  let out = base;
+  let out = `${base}\n\n${agentWorkflowInstructions()}`;
   if (harnessNote?.trim()) {
     out += `\n\n${harnessNote.trim()}`;
   }

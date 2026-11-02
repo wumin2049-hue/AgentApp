@@ -46,12 +46,16 @@ export const TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'write_file',
-      description: '写入或覆盖整个文件',
+      description:
+        '写入或覆盖整个文件（立即落到手机工作区，自动创建父目录）。搭建项目时可连续多次调用，每次一个文件。',
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string' },
-          content: { type: 'string' },
+          path: {
+            type: 'string',
+            description: '相对项目根路径，如 src/App.vue；深层路径会自动建目录',
+          },
+          content: { type: 'string', description: '完整文件内容' },
         },
         required: ['path', 'content'],
       },
@@ -61,7 +65,7 @@ export const TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'search_replace',
-      description: '局部替换文件内容',
+      description: '局部替换文件内容（改完立即写入手机工作区）',
       parameters: {
         type: 'object',
         properties: {

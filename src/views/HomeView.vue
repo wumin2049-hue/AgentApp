@@ -43,7 +43,7 @@ const active = computed(() => projects.active);
       <ol class="flow-list">
         <li>在「设置」里配置 API 地址、Key 与模型（全局共用）</li>
         <li>选择手机本地代码目录</li>
-        <li>对话中 AI 读写本地沙盒中的项目文件</li>
+        <li>对话中 AI 直接读写手机项目目录（多文件连续写入，自动建目录）</li>
         <li>改完后一键 FTP 上传变更文件</li>
       </ol>
     </div>

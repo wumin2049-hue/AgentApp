@@ -12,8 +12,10 @@ const READ_STREAK_FORCE = 3;
 
 export const HARNESS_WRITE_TOOLS = new Set(['search_replace', 'write_file', 'delete_file']);
 
+export const HARNESS_READ_TOOLS = new Set(['read_file', 'grep', 'glob', 'list_dir']);
+
 const EDIT_INTENT_RE =
-  /改|美化|样式|修复|优化|更新|写入|落盘|实现|添加|删除|新增|重构|替换|css|style|refactor|fix|update|implement|modify|edit|修改|换成|调整|创建|生成/i;
+  /改|美化|样式|修复|优化|更新|写入|落盘|实现|添加|删除|新增|重构|替换|css|style|refactor|fix|update|implement|modify|edit|修改|换成|调整|创建|生成|搭建|初始化|脚手架|从零|从0|0到1|写一?个|新建项目|做一?个/i;
 
 export function emptyDigest(): HarnessDigest {
   return { modified_files: [], read_files: [], grep_keys: [] };
@@ -155,6 +157,51 @@ export function wantsEditFromMessages(messages: unknown[]): boolean {
     return wantsEdit(content);
   }
   return false;
+}
+
+/** 工具日志：是否做过探查（读/搜/列目录），对齐 PHP harness_log_has_read 并覆盖空目录 list_dir */
+export function logHasExplore(log: Array<Pick<ToolLogEntry, 'name'>>): boolean {
+  return log.some((row) => HARNESS_READ_TOOLS.has(row.name));
+}
+
+/** 工具日志：是否已成功落盘 */
+export function logHasSuccessfulWrite(log: Array<Pick<ToolLogEntry, 'name' | 'ok'>>): boolean {
+  return log.some((row) => row.ok && HARNESS_WRITE_TOOLS.has(row.name));
+}
+
+/**
+ * 模型只输出文字计划/代码块、未调用写入工具时的判定。
+ * 空目录从 0→1 时常见：list_dir 后直接贴「计划」就结束。
+ */
+export function looksLikePlanOrCodeDump(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (/```/.test(t)) return true;
+  if (/(^|\n)\s{0,3}#{1,3}\s/.test(t)) return true;
+  if (/(^|\n)\s*\d+[\.、\)]\s+\S/.test(t)) return true;
+  return /计划|步骤|将创建|会创建|如下|实现方案|文件结构|目录结构/.test(t);
+}
+
+/** 模型只输出文字、未落盘时的系统追问（对齐 harness_edit_nudge_message） */
+export function editNudgeMessage(): string {
+  return (
+    '【系统】用户要求你创建或修改项目文件。你已探查过工作区（可为空白目录），但尚未成功调用 ' +
+    'search_replace / write_file / delete_file 落盘。' +
+    '禁止只输出计划、建议或代码块；现在必须调用写入类工具真正创建/修改文件，成功后再用一两句话总结改了什么。' +
+    '空目录请直接 write_file 创建所需文件，不要再 list_dir。'
+  );
+}
+
+/** Cursor / Harness 风格工作流说明（注入 system） */
+export function agentWorkflowInstructions(): string {
+  return (
+    '工作流与 Cursor / Harness 代码 Agent 一致：\n' +
+    '1. 理解任务 → grep/glob/list_dir 定位 → read_file 精读 → search_replace 或 write_file 落盘 → 简要总结。\n' +
+    '2. 改代码/样式/从 0 建项目：禁止只给计划或建议；必须调用 search_replace（局部改）或 write_file（新建/大改）真正写入手机工作区。\n' +
+    '3. 搭建多文件架构：按依赖顺序连续多次 write_file（每次一个文件）；父目录会自动创建。不要把多个文件塞进一次回复的代码块里代替工具调用。\n' +
+    '4. 工作区为空时：确认为空后立刻 write_file 创建文件，不要反复 list_dir，不要只输出目录树或步骤清单。\n' +
+    '5. 查找最多两轮，之后必须开始改；优先小步落盘，成功后再总结。'
+  );
 }
 
 export function filterWriteToolDefs(tools: unknown[]): unknown[] {

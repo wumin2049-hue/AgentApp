@@ -643,7 +643,8 @@ async function send() {
         return;
       }
       taskText =
-        `【已确认执行计划】\n${pendingPlanText.value}\n\n【用户原任务】\n${text}`;
+        `【已确认执行计划——立即用 write_file / search_replace 落盘，禁止再只输出计划或代码块】\n` +
+        `${pendingPlanText.value}\n\n【用户原任务】\n${text}`;
       chat.updateAssistant(
         assistantId,
         `## 计划\n\n${pendingPlanText.value}\n\n---\n\n执行中…`,
@@ -882,7 +883,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
         <div class="sub" v-if="project && aiStatusLine">
           {{ project.name }} · {{ aiStatusLine }}
         </div>
-        <div class="sub" v-else-if="project">{{ project.name }} · 工具在本地沙盒执行</div>
+        <div class="sub" v-else-if="project">{{ project.name }} · 写入实时落到手机目录</div>
         <div class="sub text-danger" v-else>请先创建并选择项目</div>
       </div>
       <button
@@ -1234,7 +1235,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
         <template v-if="project">
           <p class="ftp-context-hint" style="margin-top:10px">
             <span aria-hidden="true">📁</span> 项目根：<strong>{{ project.localRootLabel }}</strong>
-            <span class="scope-tag">沙盒 /</span>
+            <span class="scope-tag">实时写入手机</span>
           </p>
 
           <div class="field" style="margin-top:12px;margin-bottom:0">
@@ -1313,8 +1314,14 @@ function onGlobalKeydown(e: KeyboardEvent) {
             查看会话记录
           </button>
           <div class="chat-actions chat-actions--sheet">
-            <button class="btn btn-ghost" type="button" :disabled="!project || exportBusy" @click="exportToPhone">
-              {{ exportBusy ? '写回中…' : '写回手机' }}
+            <button
+              class="btn btn-ghost"
+              type="button"
+              :disabled="!project || exportBusy"
+              title="正常对话已实时写入手机；仅当同步失败时才需手动写回"
+              @click="exportToPhone"
+            >
+              {{ exportBusy ? '写回中…' : '补写回手机' }}
             </button>
             <button class="btn btn-ghost" type="button" :disabled="!project || uploadBusy" @click="uploadModified">
               {{ uploadBusy ? '上传中…' : 'FTP 上传' }}

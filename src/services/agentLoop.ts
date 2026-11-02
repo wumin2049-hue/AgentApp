@@ -27,8 +27,12 @@ import {
   harnessDigestFormat,
   harnessDigestFromToolLog,
   duplicateReadMessage,
+  editNudgeMessage,
   filterWriteToolDefs,
   forceWriteMessage,
+  logHasExplore,
+  logHasSuccessfulWrite,
+  looksLikePlanOrCodeDump,
   pruneMessages,
   readCacheKey,
   readStreakMessage,
@@ -112,9 +116,14 @@ async function executeTool(
         before = '';
       }
       const after = String(args.content || '');
-      await writeProjectFile(project, g.rel, after);
-      await trackModified(project.id, g.rel);
-      output = `已写入 ${g.rel}`;
+      const written = await writeProjectFile(project, g.rel, after);
+      // 已实时落到手机则不必进「写回」队列；否则记入待写回
+      if (!written.phoneSynced) {
+        await trackModified(project.id, g.rel);
+      }
+      output = written.phoneSynced
+        ? `已写入手机 ${g.rel}（父目录已自动创建）`
+        : `已写入沙盒 ${g.rel}（未绑定手机目录；可在项目里授权后点「写回手机」）`;
       diff = buildUnifiedSnippet(g.rel, before, after, 'write');
     } else if (name === 'search_replace') {
       const g = guardPath(String(args.path || ''), workRoot, true);
@@ -131,9 +140,13 @@ async function executeTool(
       } else {
         after = before.replace(oldStr, newStr);
       }
-      await writeProjectFile(project, g.rel, after);
-      await trackModified(project.id, g.rel);
-      output = `已替换 ${g.rel}`;
+      const written = await writeProjectFile(project, g.rel, after);
+      if (!written.phoneSynced) {
+        await trackModified(project.id, g.rel);
+      }
+      output = written.phoneSynced
+        ? `已替换并写入手机 ${g.rel}`
+        : `已替换沙盒 ${g.rel}（未绑定手机目录）`;
       // 审阅优先展示替换片段
       diff = buildUnifiedSnippet(g.rel, oldStr, newStr, 'replace');
     } else if (name === 'delete_file') {
@@ -153,7 +166,9 @@ async function executeTool(
       const g = guardPath(String(args.path || ''), workRoot);
       if (!g.ok) return g;
       const files = await listProjectDir(project, g.rel);
-      output = files.join('\n') || '（空目录）';
+      output =
+        files.join('\n') ||
+        '（空目录）若任务是从 0 创建项目/文件，请立即用 write_file 创建，不要只输出计划或目录结构。';
     } else if (name === 'grep') {
       const g = guardPath(String(args.path || ''), workRoot);
       if (!g.ok) return g;
@@ -246,6 +261,8 @@ export async function runAgentLoop(
   let readsSinceWrite = 0;
   let streakNudges = 0;
   let forceUsed = 0;
+  let writeHits = 0;
+  let editNudges = 0;
   const editIntent = wantsEdit(userText);
 
   for (let round = 0; round < maxRounds; round++) {
@@ -271,8 +288,13 @@ export async function runAgentLoop(
     }
 
     const streakForForce = Math.max(readStreak, readsSinceWrite);
-    if (editIntent) {
-      if (streakForForce >= READ_STREAK_FORCE_AT && forceUsed < 3) {
+    // 对齐 PHP harness：连续只读催落盘；追问过仍不写则收窄为写入工具（空目录 0→1 常见）
+    // 最后一轮已禁用工具，不再强制写入
+    if (editIntent && writeHits === 0 && remaining > 1) {
+      if (
+        (streakForForce >= READ_STREAK_FORCE_AT || editNudges > 0) &&
+        forceUsed < 3
+      ) {
         const subset = filterWriteToolDefs(TOOL_DEFINITIONS);
         if (subset.length) {
           useTools = subset;
@@ -312,7 +334,26 @@ export async function runAgentLoop(
     if (turn.reasoning) finalReasoning = turn.reasoning;
 
     const calls = turn.tool_calls || [];
-    if (!calls.length) break;
+    if (!calls.length) {
+      // 对齐 agent/lib/agent_loop.php：编辑意图下只出文字/计划未落盘 → 追问并继续，禁止直接「执行完成」
+      const text = String(turn.content || '').trim();
+      const explored = logHasExplore(toolLog) || readStreak > 0;
+      const greenfieldPlan =
+        toolLog.length === 0 && looksLikePlanOrCodeDump(text);
+      const needsWrite =
+        editIntent &&
+        writeHits === 0 &&
+        !logHasSuccessfulWrite(toolLog) &&
+        (explored || greenfieldPlan);
+
+      if (text && needsWrite && editNudges < 3 && remaining > 1) {
+        editNudges++;
+        messages.push({ role: 'assistant', content: text });
+        messages.push({ role: 'user', content: editNudgeMessage() });
+        continue;
+      }
+      break;
+    }
 
     messages.push({
       role: 'assistant',
@@ -398,6 +439,7 @@ export async function runAgentLoop(
       onEvent({ type: 'tool', entry });
 
       if (res.ok && HARNESS_WRITE_TOOLS.has(job.name)) {
+        writeHits++;
         const g = guardPath(String(job.args.path || ''), workRoot, true);
         if (g.ok) modified.add(g.rel);
       }
