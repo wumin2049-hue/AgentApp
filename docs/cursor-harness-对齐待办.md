@@ -1,7 +1,7 @@
 # agent-app × Cursor / Harness 对齐待办
 
 > 目标：对话、工具循环、性能与交互向 **Cursor Agent Harness** 靠拢（移动端取舍）。  
-> 基线版本：`package.json` **1.0.30** · 更新：2026-11-03  
+> 基线版本：`package.json` **1.0.32** · 更新：2026-11-03  
 > 旧清单：[`ui-logic-完善清单.md`](./ui-logic-完善清单.md)
 
 ---
@@ -21,6 +21,10 @@
 ### 1.0.30 · 强制落盘 / 无 tool_calls 兜底
 
 创建类任务首轮 `tool_choice=required`；编辑意图未落盘一律追问（不再要求「像计划」）；解析正文里的伪 tool_call；markdown 带路径代码块直接写入手机。
+
+### 1.0.32 · ask_user 弹框 + 未落盘持续跑
+
+中转站自定义 API URL/Key 直连工具循环；新增 `ask_user` 与正文方案识别弹框；编辑任务在写入成功或轮次用尽前不会因「只回文字」提前结束。
 
 ---
 

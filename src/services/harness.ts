@@ -216,14 +216,16 @@ export function agentWorkflowInstructions(): string {
     '2. 改代码/样式/从 0 建项目：禁止只给计划或建议；必须调用 search_replace（局部改）或 write_file（新建/大改）真正写入手机工作区。\n' +
     '3. 搭建多文件架构：按依赖顺序连续多次 write_file（每次一个文件）；父目录会自动创建。不要把多个文件塞进一次回复的代码块里代替工具调用。\n' +
     '4. 工作区为空时：确认为空后立刻 write_file 创建文件，不要反复 list_dir，不要只输出目录树或步骤清单。\n' +
-    '5. 查找最多两轮，之后必须开始改；优先小步落盘，成功后再总结。'
+    '5. 有多种方案需用户决策时：调用 ask_user 弹出选项，等用户选择后再继续写文件；禁止只在正文提问就结束本轮。\n' +
+    '6. 查找最多两轮，之后必须开始改；优先小步落盘，成功后再总结。本轮任务未完成前不要停止。'
   );
 }
 
 export function filterWriteToolDefs(tools: unknown[]): unknown[] {
   return tools.filter((t) => {
     const name = String((t as { function?: { name?: string } }).function?.name || '');
-    return HARNESS_WRITE_TOOLS.has(name);
+    // 强制落盘轮次仍保留 ask_user，便于方案未定时弹框，选完再写
+    return HARNESS_WRITE_TOOLS.has(name) || name === 'ask_user';
   });
 }
 

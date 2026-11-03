@@ -59,9 +59,14 @@ const atSuggestPaths = ref<string[]>([]);
 const planMode = ref(false);
 const planSheetOpen = ref(false);
 const pendingPlanText = ref('');
+const askSheetOpen = ref(false);
+const askQuestion = ref('');
+const askOptions = ref<string[]>([]);
+const askCustom = ref('');
 const expandedDiffPath = ref('');
 const compressBusy = ref(false);
 let planDecisionResolve: ((ok: boolean) => void) | null = null;
+let askUserResolve: ((answer: string | null) => void) | null = null;
 let scrollRaf = 0;
 
 const PLAN_MODE_KEY = 'mincode_plan_mode';
@@ -71,6 +76,7 @@ useFocusTrap(projectSheetOpen, '#project-sheet-panel');
 useFocusTrap(toolDetailOpen, '#tool-detail-panel');
 useFocusTrap(modifiedSheetOpen, '#modified-sheet-panel');
 useFocusTrap(planSheetOpen, '#plan-sheet-panel');
+useFocusTrap(askSheetOpen, '#ask-sheet-panel');
 
 const lastAssistantId = computed(() => {
   for (let i = chat.messages.length - 1; i >= 0; i--) {
@@ -336,6 +342,32 @@ function rejectPlan() {
   planDecisionResolve = null;
 }
 
+function waitAskUser(req: { question: string; options: string[] }): Promise<string | null> {
+  return new Promise((resolve) => {
+    askUserResolve = resolve;
+    askQuestion.value = req.question;
+    askOptions.value = req.options?.length ? [...req.options] : ['继续', '取消'];
+    askCustom.value = '';
+    askSheetOpen.value = true;
+    document.body.style.overflow = 'hidden';
+    statusMsg.value = '请选择方案后继续';
+  });
+}
+
+function resolveAsk(answer: string | null) {
+  askSheetOpen.value = false;
+  document.body.style.overflow =
+    historyDrawerOpen.value || projectSheetOpen.value || planSheetOpen.value ? 'hidden' : '';
+  askUserResolve?.(answer);
+  askUserResolve = null;
+}
+
+function submitAskCustom() {
+  const t = askCustom.value.trim();
+  if (!t) return;
+  resolveAsk(t);
+}
+
 function toggleDiff(path: string) {
   expandedDiffPath.value = expandedDiffPath.value === path ? '' : path;
 }
@@ -512,6 +544,8 @@ onUnmounted(() => {
   if (scrollRaf) cancelAnimationFrame(scrollRaf);
   planDecisionResolve?.(false);
   planDecisionResolve = null;
+  askUserResolve?.(null);
+  askUserResolve = null;
 });
 
 watch(
@@ -683,6 +717,7 @@ async function send() {
       chat.harnessDigest,
       ctl.signal,
       (msg) => window.confirm(msg),
+      waitAskUser,
     );
     if (planMode.value && pendingPlanText.value) {
       result.content =
@@ -846,6 +881,11 @@ async function uploadSelectedToFtp() {
 
 function onGlobalKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
+    if (askSheetOpen.value) {
+      e.preventDefault();
+      resolveAsk(null);
+      return;
+    }
     if (planSheetOpen.value) {
       e.preventDefault();
       rejectPlan();
@@ -903,7 +943,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
   <main
     ref="chatMainEl"
     class="app-main chat-main"
-    :aria-hidden="projectSheetOpen || historyDrawerOpen || toolDetailOpen || modifiedSheetOpen || planSheetOpen ? 'true' : undefined"
+    :aria-hidden="projectSheetOpen || historyDrawerOpen || toolDetailOpen || modifiedSheetOpen || planSheetOpen || askSheetOpen ? 'true' : undefined"
     @scroll.passive="onChatScroll"
   >
     <div v-if="!agentSettings.hasChatStorageRoot || !agentSettings.storageAccessOk" class="card card-warn">
@@ -1477,6 +1517,53 @@ function onGlobalKeydown(e: KeyboardEvent) {
         <div class="btn-row" style="margin-top:14px">
           <button type="button" class="btn btn-ghost" @click="rejectPlan">取消</button>
           <button type="button" class="btn btn-primary" @click="approvePlan">确认并执行</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI 询问方案：用户选择后继续工具循环 -->
+  <div
+    v-if="askSheetOpen"
+    class="sheet-overlay"
+    @click.self="resolveAsk(null)"
+  >
+    <div id="ask-sheet-panel" class="sheet-panel" role="dialog" aria-modal="true" aria-label="选择方案">
+      <div class="sheet-header">
+        <strong>请选择方案</strong>
+        <button type="button" class="btn btn-ghost btn-sm" data-sheet-close @click="resolveAsk(null)">取消</button>
+      </div>
+      <div class="sheet-body">
+        <pre class="plan-preview" style="white-space:pre-wrap;max-height:28vh">{{ askQuestion }}</pre>
+        <div class="btn-col" style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+          <button
+            v-for="(opt, i) in askOptions"
+            :key="i"
+            type="button"
+            class="btn btn-primary btn-block"
+            style="text-align:left;white-space:normal;height:auto;padding:10px 12px"
+            @click="resolveAsk(opt)"
+          >
+            {{ opt }}
+          </button>
+        </div>
+        <div class="field" style="margin-top:14px;margin-bottom:0">
+          <label>或输入自定义回复</label>
+          <textarea
+            v-model="askCustom"
+            rows="2"
+            placeholder="补充你的选择或要求…"
+            style="width:100%"
+          />
+          <button
+            type="button"
+            class="btn btn-ghost btn-block"
+            style="margin-top:8px"
+            :disabled="!askCustom.trim()"
+            @click="submitAskCustom"
+          >
+            提交自定义并继续
+          </button>
         </div>
       </div>
     </div>

@@ -44,6 +44,11 @@ import {
 } from './harness';
 import { buildUnifiedSnippet } from '@/utils/fileDiff';
 import { extractFencedFiles, extractToolCallsFromContent } from './toolCallParse';
+import {
+  extractAskOptions,
+  looksLikeClarifyingQuestion,
+  type AskUserHandler,
+} from './askUser';
 
 function toolLabel(name: string, args: Record<string, unknown>): string {
   const path = String(args.path || '');
@@ -54,6 +59,7 @@ function toolLabel(name: string, args: Record<string, unknown>): string {
   if (name === 'glob') return `glob ${args.glob_pattern || ''}`;
   if (name === 'list_dir') return `列目录 ${path || '/'}`;
   if (name === 'delete_file') return `删文件 ${path}`;
+  if (name === 'ask_user') return `询问用户：${String(args.question || '').slice(0, 40)}`;
   return name;
 }
 
@@ -202,6 +208,7 @@ const READ_ONLY_TOOLS = new Set(['read_file', 'grep', 'glob', 'list_dir']);
 
 /**
  * 移动端 Agent 循环：对齐 agent/lib/agent_loop.php + harness.php
+ * 直连用户配置的中转站 apiBaseUrl + apiKey；写文件实时落到手机工作区。
  */
 function throwIfAborted(signal?: AbortSignal) {
   if (signal?.aborted) throw new DOMException('已取消', 'AbortError');
@@ -218,13 +225,18 @@ export async function runAgentLoop(
   harnessDigest: HarnessDigest = { modified_files: [], read_files: [], grep_keys: [] },
   signal?: AbortSignal,
   confirmAction?: AgentLoopConfirm,
+  askUser?: AskUserHandler,
 ): Promise<AgentTurnResult> {
   const model = agent.model || '';
   if (!model) {
     throw new Error('请先在「设置」中配置默认模型');
   }
   if (!agent.apiBaseUrl?.trim() || !agent.apiKey?.trim()) {
-    throw new Error('请先在「设置」中配置 API 地址与 Key');
+    throw new Error('请先在「设置」中配置 API 地址与 Key（中转站自定义 URL）');
+  }
+  // 工具循环默认开启；仅显式关闭时拒绝编辑类任务空跑
+  if (agent.toolsEnabled === false) {
+    throw new Error('已关闭工具调用。请在设置中开启 tools，否则无法实时写入文件');
   }
 
   const digestNote = harnessDigestFormat(harnessDigest);
@@ -264,6 +276,7 @@ export async function runAgentLoop(
   let forceUsed = 0;
   let writeHits = 0;
   let editNudges = 0;
+  let clarifyAsks = 0;
   const editIntent = wantsEdit(userText);
   const createIntent = wantsCreate(userText);
 
@@ -290,22 +303,25 @@ export async function runAgentLoop(
     }
 
     const streakForForce = Math.max(readStreak, readsSinceWrite);
-    // 创建类任务首轮就强制调工具；追问后 / 连续只读后收窄为写入工具
+    // 创建类任务首轮强制调工具；未落盘前可持续强制写入（直到写成功或轮次用尽）
     if (editIntent && writeHits === 0 && remaining > 1) {
       if (createIntent && round === 0 && forceUsed < 3) {
         forceTurn = true;
         forceUsed++;
         messages.push({ role: 'user', content: createStartMessage() });
       } else if (
-        (streakForForce >= READ_STREAK_FORCE_AT || editNudges > 0 || (createIntent && round > 0)) &&
-        forceUsed < 3
+        streakForForce >= READ_STREAK_FORCE_AT ||
+        editNudges > 0 ||
+        (createIntent && round > 0)
       ) {
         const subset = filterWriteToolDefs(TOOL_DEFINITIONS);
         if (subset.length) {
           useTools = subset;
           forceTurn = true;
-          forceUsed++;
-          messages.push({ role: 'user', content: forceWriteMessage() });
+          if (forceUsed < 12) {
+            forceUsed++;
+            messages.push({ role: 'user', content: forceWriteMessage() });
+          }
         }
       } else if (streakForForce >= READ_STREAK_NUDGE_AT && streakNudges < 3) {
         streakNudges++;
@@ -369,67 +385,113 @@ export async function runAgentLoop(
 
     if (!calls.length) {
       const text = String(turn.content || '').trim();
-      // 编辑意图且尚未落盘：一律追问，不再要求「看起来像计划」才继续
       const needsWrite =
         editIntent && writeHits === 0 && !logHasSuccessfulWrite(toolLog);
 
-      if (needsWrite && editNudges < 3 && remaining > 1) {
+      // 正文在征询方案：弹框让用户选，选完继续跑（禁止当成任务结束）
+      if (
+        askUser &&
+        text &&
+        looksLikeClarifyingQuestion(text) &&
+        clarifyAsks < 6 &&
+        remaining > 1
+      ) {
+        clarifyAsks++;
+        messages.push({ role: 'assistant', content: text });
+        onEvent({ type: 'tool_start', name: 'ask_user', label: '等待你选择方案…' });
+        const req = extractAskOptions(text);
+        const answer = await askUser(req);
+        onEvent({
+          type: 'tool',
+          entry: {
+            name: 'ask_user',
+            label: answer ? `用户选择：${answer.slice(0, 48)}` : '用户取消选择',
+            ok: Boolean(answer),
+          },
+        });
+        if (!answer) {
+          finalContent = `${text}\n\n（已取消选择，本轮结束）`;
+          break;
+        }
+        messages.push({
+          role: 'user',
+          content:
+            `【用户选择】${answer}\n` +
+            '请按此选择继续执行。若需创建/修改文件，立即调用 write_file / search_replace 落盘，不要再次只提问就结束。',
+        });
+        continue;
+      }
+
+      // 编辑任务尚未落盘：一直催/强制写，直到写入成功或轮次用尽（禁止一轮空跑就结束）
+      if (needsWrite && remaining > 1) {
+        // 先尝试把带路径的代码块直接写入
+        if (text) {
+          const fences = extractFencedFiles(text);
+          if (fences.length) {
+            const writtenPaths: string[] = [];
+            for (const f of fences) {
+              const g = guardPath(f.path, workRoot, true);
+              if (!g.ok) continue;
+              try {
+                const written = await writeProjectFile(project, g.rel, f.content);
+                if (!written.phoneSynced) await trackModified(project.id, g.rel);
+                modified.add(g.rel);
+                writeHits++;
+                writtenPaths.push(g.rel);
+                const entry: ToolLogEntry = {
+                  name: 'write_file',
+                  label: `写文件 ${g.rel}`,
+                  ok: true,
+                  path: g.rel,
+                };
+                toolLog.push(entry);
+                toolLogWithArgs.push({
+                  ...entry,
+                  args: { path: g.rel, content: f.content },
+                });
+                onEvent({ type: 'tool', entry });
+                fileDiffs.push(buildUnifiedSnippet(g.rel, '', f.content, 'write'));
+              } catch (err) {
+                const entry: ToolLogEntry = {
+                  name: 'write_file',
+                  label: `写文件 ${g.rel}`,
+                  ok: false,
+                  path: g.rel,
+                };
+                toolLog.push(entry);
+                onEvent({ type: 'tool', entry });
+                finalContent =
+                  (finalContent ? finalContent + '\n\n' : '') +
+                  `写入失败 ${g.rel}：${err instanceof Error ? err.message : String(err)}`;
+              }
+            }
+            if (writtenPaths.length) {
+              finalContent =
+                (text ? text + '\n\n---\n\n' : '') +
+                `已从回复中的代码块写入 ${writtenPaths.length} 个文件：` +
+                writtenPaths.join('、');
+              // 已有落盘，若正文像还没做完可继续；此处先结束本轮总结
+              break;
+            }
+          }
+        }
+
         editNudges++;
         messages.push({
           role: 'assistant',
           content: text || '（未调用工具，准备落盘）',
         });
-        messages.push({ role: 'user', content: editNudgeMessage() });
+        messages.push({
+          role: 'user',
+          content:
+            editNudges <= 2
+              ? editNudgeMessage()
+              : forceWriteMessage() +
+                ' 若仍有方案未定，请先调用 ask_user 弹出选项，选完后立刻 write_file。',
+        });
         continue;
       }
 
-      // 追问仍不调工具：把 markdown 带路径代码块直接写入（兜底，对齐「返回文件内容就写入」）
-      if (needsWrite && text) {
-        const fences = extractFencedFiles(text);
-        if (fences.length) {
-          const writtenPaths: string[] = [];
-          for (const f of fences) {
-            const g = guardPath(f.path, workRoot, true);
-            if (!g.ok) continue;
-            try {
-              const written = await writeProjectFile(project, g.rel, f.content);
-              if (!written.phoneSynced) await trackModified(project.id, g.rel);
-              modified.add(g.rel);
-              writeHits++;
-              writtenPaths.push(g.rel);
-              const entry: ToolLogEntry = {
-                name: 'write_file',
-                label: `写文件 ${g.rel}`,
-                ok: true,
-                path: g.rel,
-              };
-              toolLog.push(entry);
-              toolLogWithArgs.push({ ...entry, args: { path: g.rel, content: f.content } });
-              onEvent({ type: 'tool', entry });
-              fileDiffs.push(buildUnifiedSnippet(g.rel, '', f.content, 'write'));
-            } catch (err) {
-              const entry: ToolLogEntry = {
-                name: 'write_file',
-                label: `写文件 ${g.rel}`,
-                ok: false,
-                path: g.rel,
-              };
-              toolLog.push(entry);
-              onEvent({ type: 'tool', entry });
-              finalContent =
-                (finalContent ? finalContent + '\n\n' : '') +
-                `写入失败 ${g.rel}：${err instanceof Error ? err.message : String(err)}`;
-            }
-          }
-          if (writtenPaths.length) {
-            finalContent =
-              (text ? text + '\n\n---\n\n' : '') +
-              `已从回复中的代码块写入 ${writtenPaths.length} 个文件：` +
-              writtenPaths.join('、');
-            break;
-          }
-        }
-      }
       break;
     }
 
@@ -458,7 +520,9 @@ export async function runAgentLoop(
         args = {};
       }
       if (HARNESS_WRITE_TOOLS.has(name)) roundHadWrite = true;
-      else if (READ_ONLY_TOOLS.has(name) || name) roundHadRead = true;
+      else if (name === 'ask_user') {
+        /* 询问用户：不计入只读 streak */
+      } else if (READ_ONLY_TOOLS.has(name) || name) roundHadRead = true;
       return { tc, name, args, label: toolLabel(name, args) };
     });
 
@@ -472,6 +536,30 @@ export async function runAgentLoop(
         label: job.label,
         path: String(job.args.path || ''),
       });
+
+      if (job.name === 'ask_user') {
+        if (!askUser) {
+          return { ok: false, output: '当前界面不支持 ask_user 弹框' };
+        }
+        const question = String(job.args.question || '').trim() || '请选择一项以继续';
+        let options: string[] = [];
+        if (Array.isArray(job.args.options)) {
+          options = job.args.options.map((x) => String(x)).filter(Boolean);
+        } else if (typeof job.args.options === 'string') {
+          options = String(job.args.options)
+            .split(/\n|,|，/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+        }
+        if (options.length < 2) {
+          options = extractAskOptions(question).options;
+        }
+        const answer = await askUser({ question, options: options.slice(0, 8) });
+        if (!answer) {
+          return { ok: false, output: '用户取消了选择' };
+        }
+        return { ok: true, output: `用户选择：${answer}` };
+      }
 
       if (job.name === 'delete_file') {
         const pathHint = String(job.args.path || '');

@@ -128,4 +128,24 @@ export const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'ask_user',
+      description:
+        '向用户弹出选项框询问方案/确认项，等待用户选择后再继续。有多种实现路径或关键决策时必须先调用，不要只在正文里提问就结束。',
+      parameters: {
+        type: 'object',
+        properties: {
+          question: { type: 'string', description: '要问用户的问题' },
+          options: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '可选方案列表（2～8 项）',
+          },
+        },
+        required: ['question', 'options'],
+      },
+    },
+  },
 ];
