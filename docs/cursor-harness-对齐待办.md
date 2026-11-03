@@ -1,7 +1,7 @@
 # agent-app × Cursor / Harness 对齐待办
 
 > 目标：对话、工具循环、性能与交互向 **Cursor Agent Harness** 靠拢（移动端取舍）。  
-> 基线版本：`package.json` **1.0.29** · 更新：2026-11-02  
+> 基线版本：`package.json` **1.0.30** · 更新：2026-11-03  
 > 旧清单：[`ui-logic-完善清单.md`](./ui-logic-完善清单.md)
 
 ---
@@ -17,6 +17,10 @@
 ### 1.0.29 · 实时写入手机（对齐 Cursor 工作区）
 
 `write_file` / `search_replace` 每次调用立即写入绑定的手机 SAF 目录（自动建父目录），并镜像沙盒；一回合可连续写入多文件搭架构。失败时才进入「补写回手机」队列。
+
+### 1.0.30 · 强制落盘 / 无 tool_calls 兜底
+
+创建类任务首轮 `tool_choice=required`；编辑意图未落盘一律追问（不再要求「像计划」）；解析正文里的伪 tool_call；markdown 带路径代码块直接写入手机。
 
 ---
 

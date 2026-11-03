@@ -632,7 +632,7 @@ async function send() {
       chat.updateAssistant(assistantId, `## 计划（待确认）\n\n${pendingPlanText.value}`);
       planSheetOpen.value = true;
       document.body.style.overflow = 'hidden';
-      statusMsg.value = '请确认计划后再执行';
+      statusMsg.value = '请确认计划后再执行（点「确认并执行」才会真正写文件）';
       const approved = await waitPlanDecision();
       if (!approved) {
         chat.updateAssistant(
@@ -642,9 +642,10 @@ async function send() {
         await chat.persist();
         return;
       }
+      // 确认后关闭计划模式标记影响，强制按「立即落盘」执行
       taskText =
         `【已确认执行计划——立即用 write_file / search_replace 落盘，禁止再只输出计划或代码块】\n` +
-        `${pendingPlanText.value}\n\n【用户原任务】\n${text}`;
+        `${pendingPlanText.value}\n\n【用户原任务】\n${text}\n\n请直接开始创建/修改文件。`;
       chat.updateAssistant(
         assistantId,
         `## 计划\n\n${pendingPlanText.value}\n\n---\n\n执行中…`,

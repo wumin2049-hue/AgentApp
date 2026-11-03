@@ -26,23 +26,24 @@ import {
   HARNESS_WRITE_TOOLS,
   harnessDigestFormat,
   harnessDigestFromToolLog,
+  createStartMessage,
   duplicateReadMessage,
   editNudgeMessage,
   filterWriteToolDefs,
   forceWriteMessage,
-  logHasExplore,
   logHasSuccessfulWrite,
-  looksLikePlanOrCodeDump,
   pruneMessages,
   readCacheKey,
   readStreakMessage,
   roundsLowEditMessage,
   truncateToolOutput,
+  wantsCreate,
   wantsEdit,
   READ_STREAK_FORCE_AT,
   READ_STREAK_NUDGE_AT,
 } from './harness';
 import { buildUnifiedSnippet } from '@/utils/fileDiff';
+import { extractFencedFiles, extractToolCallsFromContent } from './toolCallParse';
 
 function toolLabel(name: string, args: Record<string, unknown>): string {
   const path = String(args.path || '');
@@ -264,6 +265,7 @@ export async function runAgentLoop(
   let writeHits = 0;
   let editNudges = 0;
   const editIntent = wantsEdit(userText);
+  const createIntent = wantsCreate(userText);
 
   for (let round = 0; round < maxRounds; round++) {
     throwIfAborted(signal);
@@ -288,11 +290,14 @@ export async function runAgentLoop(
     }
 
     const streakForForce = Math.max(readStreak, readsSinceWrite);
-    // 对齐 PHP harness：连续只读催落盘；追问过仍不写则收窄为写入工具（空目录 0→1 常见）
-    // 最后一轮已禁用工具，不再强制写入
+    // 创建类任务首轮就强制调工具；追问后 / 连续只读后收窄为写入工具
     if (editIntent && writeHits === 0 && remaining > 1) {
-      if (
-        (streakForForce >= READ_STREAK_FORCE_AT || editNudges > 0) &&
+      if (createIntent && round === 0 && forceUsed < 3) {
+        forceTurn = true;
+        forceUsed++;
+        messages.push({ role: 'user', content: createStartMessage() });
+      } else if (
+        (streakForForce >= READ_STREAK_FORCE_AT || editNudges > 0 || (createIntent && round > 0)) &&
         forceUsed < 3
       ) {
         const subset = filterWriteToolDefs(TOOL_DEFINITIONS);
@@ -310,47 +315,120 @@ export async function runAgentLoop(
 
     onEvent({ type: 'round', round: round + 1, forceWrite: forceTurn });
 
-    const turnOpts = {
-      model,
-      max_tokens: agent.maxTokens ?? 8192,
-      temperature: agent.temperature ?? 0.7,
-      signal,
-      ...(forceTurn && useTools.length ? { tool_choice: 'required' as const } : {}),
-    };
+    const runTurn = (tools: unknown[], choice?: string) =>
+      chatTurnStream(
+        agent,
+        pruneMessages(messages, harnessDigest),
+        tools,
+        {
+          model,
+          max_tokens: agent.maxTokens ?? 8192,
+          temperature: agent.temperature ?? 0.7,
+          signal,
+          ...(choice ? { tool_choice: choice } : {}),
+        },
+        (content, reasoning) => {
+          finalContent = content;
+          finalReasoning = reasoning;
+          onEvent({ type: 'delta', content, reasoning });
+        },
+      );
 
-    const turn = await chatTurnStream(
-      agent,
-      pruneMessages(messages, harnessDigest),
-      useTools,
-      turnOpts,
-      (content, reasoning) => {
-        finalContent = content;
-        finalReasoning = reasoning;
-        onEvent({ type: 'delta', content, reasoning });
-      },
-    );
+    let turn: Awaited<ReturnType<typeof chatTurnStream>>;
+    try {
+      turn = await runTurn(useTools, forceTurn && useTools.length ? 'required' : undefined);
+    } catch (e) {
+      // 上游不支持 tool_choice / tools 时降级，避免整轮直接失败结束
+      const msg = e instanceof Error ? e.message : String(e);
+      if (forceTurn && useTools.length) {
+        try {
+          turn = await runTurn(useTools, undefined);
+        } catch {
+          if (/tool|function/i.test(msg)) {
+            turn = await runTurn([], undefined);
+          } else {
+            throw e;
+          }
+        }
+      } else if (useTools.length && /tool|function/i.test(msg)) {
+        turn = await runTurn([], undefined);
+      } else {
+        throw e;
+      }
+    }
 
     if (turn.content) finalContent = turn.content;
     if (turn.reasoning) finalReasoning = turn.reasoning;
 
-    const calls = turn.tool_calls || [];
-    if (!calls.length) {
-      // 对齐 agent/lib/agent_loop.php：编辑意图下只出文字/计划未落盘 → 追问并继续，禁止直接「执行完成」
-      const text = String(turn.content || '').trim();
-      const explored = logHasExplore(toolLog) || readStreak > 0;
-      const greenfieldPlan =
-        toolLog.length === 0 && looksLikePlanOrCodeDump(text);
-      const needsWrite =
-        editIntent &&
-        writeHits === 0 &&
-        !logHasSuccessfulWrite(toolLog) &&
-        (explored || greenfieldPlan);
+    let calls = turn.tool_calls || [];
+    // 模型把工具调用写在正文里（无正式 tool_calls）时抢救
+    if (!calls.length && turn.content) {
+      const parsed = extractToolCallsFromContent(turn.content);
+      if (parsed.length) calls = parsed;
+    }
 
-      if (text && needsWrite && editNudges < 3 && remaining > 1) {
+    if (!calls.length) {
+      const text = String(turn.content || '').trim();
+      // 编辑意图且尚未落盘：一律追问，不再要求「看起来像计划」才继续
+      const needsWrite =
+        editIntent && writeHits === 0 && !logHasSuccessfulWrite(toolLog);
+
+      if (needsWrite && editNudges < 3 && remaining > 1) {
         editNudges++;
-        messages.push({ role: 'assistant', content: text });
+        messages.push({
+          role: 'assistant',
+          content: text || '（未调用工具，准备落盘）',
+        });
         messages.push({ role: 'user', content: editNudgeMessage() });
         continue;
+      }
+
+      // 追问仍不调工具：把 markdown 带路径代码块直接写入（兜底，对齐「返回文件内容就写入」）
+      if (needsWrite && text) {
+        const fences = extractFencedFiles(text);
+        if (fences.length) {
+          const writtenPaths: string[] = [];
+          for (const f of fences) {
+            const g = guardPath(f.path, workRoot, true);
+            if (!g.ok) continue;
+            try {
+              const written = await writeProjectFile(project, g.rel, f.content);
+              if (!written.phoneSynced) await trackModified(project.id, g.rel);
+              modified.add(g.rel);
+              writeHits++;
+              writtenPaths.push(g.rel);
+              const entry: ToolLogEntry = {
+                name: 'write_file',
+                label: `写文件 ${g.rel}`,
+                ok: true,
+                path: g.rel,
+              };
+              toolLog.push(entry);
+              toolLogWithArgs.push({ ...entry, args: { path: g.rel, content: f.content } });
+              onEvent({ type: 'tool', entry });
+              fileDiffs.push(buildUnifiedSnippet(g.rel, '', f.content, 'write'));
+            } catch (err) {
+              const entry: ToolLogEntry = {
+                name: 'write_file',
+                label: `写文件 ${g.rel}`,
+                ok: false,
+                path: g.rel,
+              };
+              toolLog.push(entry);
+              onEvent({ type: 'tool', entry });
+              finalContent =
+                (finalContent ? finalContent + '\n\n' : '') +
+                `写入失败 ${g.rel}：${err instanceof Error ? err.message : String(err)}`;
+            }
+          }
+          if (writtenPaths.length) {
+            finalContent =
+              (text ? text + '\n\n---\n\n' : '') +
+              `已从回复中的代码块写入 ${writtenPaths.length} 个文件：` +
+              writtenPaths.join('、');
+            break;
+          }
+        }
       }
       break;
     }

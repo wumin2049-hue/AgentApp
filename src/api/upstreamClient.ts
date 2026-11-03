@@ -228,6 +228,73 @@ export async function upstreamRequest(
   return json;
 }
 
+function consumeSseBlock(
+  block: string,
+  state: {
+    content: string;
+    reasoning: string;
+    callMap: Record<number, { id: string; name: string; arguments: string }>;
+  },
+  onDelta: (content: string, reasoning: string) => void,
+): void {
+  for (const rawLine of block.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    if (!line.startsWith('data:')) continue;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === '[DONE]') continue;
+    try {
+      const json = JSON.parse(payload) as {
+        choices?: Array<{
+          delta?: {
+            content?: string;
+            reasoning_content?: string;
+            tool_calls?: Array<{
+              index?: number;
+              id?: string;
+              function?: { name?: string; arguments?: string };
+            }>;
+          };
+          message?: {
+            content?: string;
+            tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>;
+          };
+        }>;
+      };
+      const choice = json.choices?.[0];
+      const delta = choice?.delta;
+      if (delta?.content) {
+        state.content += delta.content;
+        onDelta(state.content, state.reasoning);
+      }
+      if (delta?.reasoning_content) {
+        state.reasoning += delta.reasoning_content;
+        onDelta(state.content, state.reasoning);
+      }
+      if (delta?.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          const idx = tc.index ?? 0;
+          if (!state.callMap[idx]) state.callMap[idx] = { id: '', name: '', arguments: '' };
+          if (tc.id) state.callMap[idx].id = tc.id;
+          if (tc.function?.name) state.callMap[idx].name += tc.function.name;
+          if (tc.function?.arguments) state.callMap[idx].arguments += tc.function.arguments;
+        }
+      }
+      // 少数网关在 stream 里夹带完整 message.tool_calls
+      const msgCalls = choice?.message?.tool_calls;
+      if (msgCalls?.length) {
+        msgCalls.forEach((tc, idx) => {
+          if (!state.callMap[idx]) state.callMap[idx] = { id: '', name: '', arguments: '' };
+          if (tc.id) state.callMap[idx].id = tc.id;
+          if (tc.function?.name) state.callMap[idx].name = tc.function.name;
+          if (tc.function?.arguments) state.callMap[idx].arguments = tc.function.arguments;
+        });
+      }
+    } catch {
+      /* skip bad chunk */
+    }
+  }
+}
+
 async function parseOpenAiSse(
   resp: Response,
   onDelta: (content: string, reasoning: string) => void,
@@ -237,72 +304,48 @@ async function parseOpenAiSse(
 
   const decoder = new TextDecoder();
   let buffer = '';
-  let content = '';
-  let reasoning = '';
-  const callMap: Record<number, { id: string; name: string; arguments: string }> = {};
+  const state = {
+    content: '',
+    reasoning: '',
+    callMap: {} as Record<number, { id: string; name: string; arguments: string }>,
+  };
+
+  const flushBySep = () => {
+    // 同时兼容 \n\n 与 \r\n\r\n
+    buffer = buffer.replace(/\r\n/g, '\n');
+    let sep: number;
+    while ((sep = buffer.indexOf('\n\n')) !== -1) {
+      const block = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      consumeSseBlock(block, state, onDelta);
+    }
+  };
 
   while (true) {
     const chunk = await reader.read();
     if (chunk.done) break;
     buffer += decoder.decode(chunk.value, { stream: true });
-    let sep: number;
-    while ((sep = buffer.indexOf('\n\n')) !== -1) {
-      const block = buffer.slice(0, sep);
-      buffer = buffer.slice(sep + 2);
-      for (const line of block.split('\n')) {
-        if (!line.startsWith('data:')) continue;
-        const payload = line.slice(5).trim();
-        if (!payload || payload === '[DONE]') continue;
-        try {
-          const json = JSON.parse(payload) as {
-            choices?: Array<{
-              delta?: {
-                content?: string;
-                reasoning_content?: string;
-                tool_calls?: Array<{
-                  index?: number;
-                  id?: string;
-                  function?: { name?: string; arguments?: string };
-                }>;
-              };
-            }>;
-          };
-          const delta = json.choices?.[0]?.delta;
-          if (delta?.content) {
-            content += delta.content;
-            onDelta(content, reasoning);
-          }
-          if (delta?.reasoning_content) {
-            reasoning += delta.reasoning_content;
-            onDelta(content, reasoning);
-          }
-          if (delta?.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const idx = tc.index ?? 0;
-              if (!callMap[idx]) callMap[idx] = { id: '', name: '', arguments: '' };
-              if (tc.id) callMap[idx].id = tc.id;
-              if (tc.function?.name) callMap[idx].name += tc.function.name;
-              if (tc.function?.arguments) callMap[idx].arguments += tc.function.arguments;
-            }
-          }
-        } catch {
-          /* skip */
-        }
-      }
-    }
+    flushBySep();
   }
+  buffer += decoder.decode();
+  flushBySep();
+  // 流结束仍残留未以空行结尾的 data 行
+  if (buffer.trim()) consumeSseBlock(buffer, state, onDelta);
 
-  const tool_calls = Object.keys(callMap)
+  const tool_calls = Object.keys(state.callMap)
     .sort((a, b) => Number(a) - Number(b))
     .map((k) => ({
-      id: callMap[Number(k)].id || `call_${k}`,
-      function: { name: callMap[Number(k)].name, arguments: callMap[Number(k)].arguments || '{}' },
+      id: state.callMap[Number(k)].id || `call_${k}`,
+      function: {
+        name: state.callMap[Number(k)].name,
+        arguments: state.callMap[Number(k)].arguments || '{}',
+      },
     }))
     .filter((tc) => tc.function.name);
 
   return {
-    content,
-    reasoning,
+    content: state.content,
+    reasoning: state.reasoning,
     tool_calls: tool_calls.length ? tool_calls : undefined,
   };
 }

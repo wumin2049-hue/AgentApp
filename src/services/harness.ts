@@ -15,7 +15,11 @@ export const HARNESS_WRITE_TOOLS = new Set(['search_replace', 'write_file', 'del
 export const HARNESS_READ_TOOLS = new Set(['read_file', 'grep', 'glob', 'list_dir']);
 
 const EDIT_INTENT_RE =
-  /改|美化|样式|修复|优化|更新|写入|落盘|实现|添加|删除|新增|重构|替换|css|style|refactor|fix|update|implement|modify|edit|修改|换成|调整|创建|生成|搭建|初始化|脚手架|从零|从0|0到1|写一?个|新建项目|做一?个/i;
+  /改|美化|样式|修复|优化|更新|写入|落盘|实现|添加|删除|新增|重构|替换|css|style|refactor|fix|update|implement|modify|edit|修改|换成|调整|创建|生成|搭建|初始化|脚手架|从零|从0|0到1|写一?个|新建|做一?个|弄一?个|开发|项目|网站|应用|页面|app|html|vue|react|帮忙|帮我/i;
+
+/** 从 0 建项目 / 明确要落盘的创建类意图（首轮就强制调工具） */
+const CREATE_INTENT_RE =
+  /创建|生成|搭建|初始化|脚手架|从零|从0|0到1|写一?个|新建|做一?个|弄一?个|开发|项目|网站|应用|页面|空目录|空文件夹/i;
 
 export function emptyDigest(): HarnessDigest {
   return { modified_files: [], read_files: [], grep_keys: [] };
@@ -148,6 +152,10 @@ export function wantsEdit(text: string): boolean {
   return EDIT_INTENT_RE.test(text.trim());
 }
 
+export function wantsCreate(text: string): boolean {
+  return CREATE_INTENT_RE.test(text.trim());
+}
+
 export function wantsEditFromMessages(messages: unknown[]): boolean {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i] as { role?: string; content?: string };
@@ -185,10 +193,18 @@ export function looksLikePlanOrCodeDump(text: string): boolean {
 /** 模型只输出文字、未落盘时的系统追问（对齐 harness_edit_nudge_message） */
 export function editNudgeMessage(): string {
   return (
-    '【系统】用户要求你创建或修改项目文件。你已探查过工作区（可为空白目录），但尚未成功调用 ' +
-    'search_replace / write_file / delete_file 落盘。' +
-    '禁止只输出计划、建议或代码块；现在必须调用写入类工具真正创建/修改文件，成功后再用一两句话总结改了什么。' +
-    '空目录请直接 write_file 创建所需文件，不要再 list_dir。'
+    '【系统】用户要求你创建或修改项目文件，但你还没有成功调用 ' +
+    'search_replace / write_file / delete_file。' +
+    '禁止只输出计划、建议或代码块；现在必须用工具真正写入文件。' +
+    '空目录请直接 write_file（可连续多次，每次一个文件），不要再只回复文字。'
+  );
+}
+
+/** 创建类任务首轮提醒 */
+export function createStartMessage(): string {
+  return (
+    '【系统】这是创建/搭建类任务。你必须通过工具调用完成：立刻 write_file 写入文件（深层路径会自动建目录）。' +
+    '禁止只输出计划、目录树或代码块就结束。可以一次返回多个 write_file 工具调用。'
   );
 }
 
