@@ -73,6 +73,35 @@ export interface ToolLogEntry {
   label: string;
   ok: boolean;
   path?: string;
+  /** 写入类工具行数统计（对齐 Harness 写入轨迹） */
+  added?: number;
+  removed?: number;
+}
+
+export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: TodoStatus;
+}
+
+export type TimelineItemKind = 'thinking' | 'tool_start' | 'tool' | 'todos' | 'round';
+
+/** 本轮 Harness 式时间线条目 */
+export interface TimelineItem {
+  id: string;
+  kind: TimelineItemKind;
+  at: number;
+  /** thinking 文本 / 工具 label / 轮次说明 */
+  text?: string;
+  name?: string;
+  path?: string;
+  ok?: boolean;
+  added?: number;
+  removed?: number;
+  active?: boolean;
+  todos?: TodoItem[];
 }
 
 /** 本轮文件改动片段（审阅用） */
@@ -82,6 +111,8 @@ export interface FileDiffSnippet {
   before?: string;
   after?: string;
   unified?: string;
+  added?: number;
+  removed?: number;
 }
 
 export interface HarnessDigest {

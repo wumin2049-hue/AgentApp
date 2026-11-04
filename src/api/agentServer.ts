@@ -148,4 +148,37 @@ export const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'update_todos',
+      description:
+        '创建或更新本轮任务清单（对齐 Harness 任务面板）。多步搭建/改动时先建清单，每完成一步更新 status；可与 write_file 穿插调用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          merge: {
+            type: 'boolean',
+            description: 'true=按 id 合并更新；false=整表替换。默认 true',
+          },
+          todos: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: '稳定唯一 id，如 scaffold / api' },
+                content: { type: 'string', description: '任务描述' },
+                status: {
+                  type: 'string',
+                  enum: ['pending', 'in_progress', 'completed', 'cancelled'],
+                },
+              },
+              required: ['id', 'content', 'status'],
+            },
+          },
+        },
+        required: ['todos'],
+      },
+    },
+  },
 ];

@@ -7,6 +7,8 @@ import type {
   ToolLogEntry,
   ChatSessionMeta,
   FileDiffSnippet,
+  TimelineItem,
+  TodoItem,
 } from '@/types';
 import {
   emptyDigest,
@@ -61,6 +63,10 @@ export const useChatStore = defineStore('chat', {
     turnModifiedFiles: [] as string[],
     /** 本轮改动 diff 片段 */
     turnFileDiffs: [] as FileDiffSnippet[],
+    /** Harness 式本轮时间线 */
+    turnTimeline: [] as TimelineItem[],
+    /** 本轮任务清单 */
+    turnTodos: [] as TodoItem[],
     harnessDigest: emptyDigest() as HarnessDigest,
     error: '' as string,
     storageReady: false as boolean,
@@ -95,6 +101,8 @@ export const useChatStore = defineStore('chat', {
       this.toolLog = [];
       this.turnModifiedFiles = [];
       this.turnFileDiffs = [];
+      this.turnTimeline = [];
+      this.turnTodos = [];
       this.error = '';
       this.storageReady = false;
 
@@ -357,7 +365,55 @@ export const useChatStore = defineStore('chat', {
       this.toolLog = [];
       this.turnModifiedFiles = [];
       this.turnFileDiffs = [];
+      this.turnTimeline = [];
+      this.turnTodos = [];
       this.error = '';
+    },
+
+    pushTimeline(item: Omit<TimelineItem, 'id' | 'at'> & { id?: string; at?: number }) {
+      const id = item.id || `tl_${Date.now().toString(36)}_${this.turnTimeline.length}`;
+      // 合并连续 thinking：更新最后一条
+      if (item.kind === 'thinking' && this.turnTimeline.length) {
+        const last = this.turnTimeline[this.turnTimeline.length - 1];
+        if (last.kind === 'thinking') {
+          last.text = item.text || '';
+          last.at = item.at ?? Date.now();
+          return;
+        }
+      }
+      // tool_start：标记 active；同 path/name 替换进行中项
+      if (item.kind === 'tool_start') {
+        for (const row of this.turnTimeline) {
+          if (row.kind === 'tool_start' && row.active) row.active = false;
+        }
+      }
+      this.turnTimeline.push({
+        id,
+        at: item.at ?? Date.now(),
+        kind: item.kind,
+        text: item.text,
+        name: item.name,
+        path: item.path,
+        ok: item.ok,
+        added: item.added,
+        removed: item.removed,
+        active: item.active,
+        todos: item.todos,
+      });
+      // 时间线过长时保留尾部
+      if (this.turnTimeline.length > 120) {
+        this.turnTimeline = this.turnTimeline.slice(-100);
+      }
+    },
+
+    finishActiveToolStarts() {
+      for (const row of this.turnTimeline) {
+        if (row.kind === 'tool_start' && row.active) row.active = false;
+      }
+    },
+
+    setTurnTodos(todos: TodoItem[]) {
+      this.turnTodos = todos.map((t) => ({ ...t }));
     },
 
     pushUser(text: string) {

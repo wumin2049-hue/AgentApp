@@ -445,6 +445,203 @@ a.card-clickable {
   color: var(--danger);
 }
 
+/* Harness 式时间线 + 任务清单 */
+.harness-panel {
+  margin: 8px 12px 8px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  overflow: hidden;
+}
+
+.harness-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px 4px;
+}
+
+.harness-panel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.harness-panel-link {
+  border: none;
+  background: transparent;
+  color: var(--accent2);
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.harness-timeline {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px 10px 8px;
+  scrollbar-width: thin;
+}
+
+.harness-think {
+  margin: 4px 0 8px;
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+}
+
+.harness-think summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  list-style: none;
+}
+
+.harness-think summary::-webkit-details-marker {
+  display: none;
+}
+
+.harness-think summary::before {
+  content: '▸ ';
+}
+
+.harness-think[open] summary::before {
+  content: '▾ ';
+}
+
+.harness-think pre {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  max-height: 120px;
+  overflow: auto;
+}
+
+.harness-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.harness-row--active {
+  color: var(--accent2);
+}
+
+.harness-row--read {
+  color: var(--muted);
+}
+
+.harness-row.is-write .harness-path {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.harness-row.is-fail {
+  color: var(--danger);
+}
+
+.harness-ico {
+  flex: 0 0 16px;
+  text-align: center;
+  opacity: 0.75;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.harness-row-body {
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.harness-delta {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--ok);
+  white-space: nowrap;
+}
+
+.harness-muted {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.harness-round {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 0 2px;
+  opacity: 0.85;
+}
+
+.harness-todos {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px 10px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.harness-todos-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.harness-todos-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.harness-todo {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.harness-todo.is-completed {
+  opacity: 0.65;
+}
+
+.harness-todo.is-completed .harness-todo-text {
+  text-decoration: line-through;
+}
+
+.harness-todo.is-in_progress .harness-todo-mark {
+  color: var(--accent2);
+}
+
+.harness-todo-mark {
+  flex: 0 0 14px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.harness-todo-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.harness-todo-status {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.status-line--live {
+  color: var(--accent2);
+}
+
 /* 读文件/工具记录：默认 40px 高，内部滚动且隐藏滚动条 */
 .tool-log-panel {
   margin: 8px 12px 6px 0;

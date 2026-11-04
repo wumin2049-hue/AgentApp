@@ -82,6 +82,21 @@ function lineUnified(path: string, before: string, after: string): string {
   return lines.join('\n');
 }
 
+/** 粗算增删行数（供写入时间线展示 +N -M） */
+export function countLineDelta(
+  before: string,
+  after: string,
+  kind: FileDiffSnippet['kind'] = 'replace',
+): { added: number; removed: number } {
+  const bRaw = before || '';
+  const aRaw = after || '';
+  const bN = bRaw ? bRaw.split('\n').length : 0;
+  const aN = aRaw ? aRaw.split('\n').length : 0;
+  if (kind === 'delete') return { added: 0, removed: Math.max(bN, 1) };
+  if (kind === 'write' && !bRaw) return { added: Math.max(aN, 1), removed: 0 };
+  return { added: aN, removed: bN };
+}
+
 /** 生成审阅用 unified 片段 */
 export function buildUnifiedSnippet(
   path: string,
@@ -93,6 +108,7 @@ export function buildUnifiedSnippet(
   const aRaw = after || '';
   const b = clipText(bRaw);
   const a = clipText(aRaw);
+  const delta = countLineDelta(bRaw, aRaw, kind);
 
   let unified: string;
   if (kind === 'delete') {
@@ -115,5 +131,7 @@ export function buildUnifiedSnippet(
     before: b || undefined,
     after: kind === 'delete' ? undefined : a || undefined,
     unified,
+    added: delta.added,
+    removed: delta.removed,
   };
 }

@@ -3,6 +3,8 @@ import type {
   AgentServerConfig,
   AgentTurnResult,
   FileDiffSnippet,
+  TodoItem,
+  TodoStatus,
   ToolLogEntry,
   WorkProject,
 } from '@/types';
@@ -60,7 +62,42 @@ function toolLabel(name: string, args: Record<string, unknown>): string {
   if (name === 'list_dir') return `列目录 ${path || '/'}`;
   if (name === 'delete_file') return `删文件 ${path}`;
   if (name === 'ask_user') return `询问用户：${String(args.question || '').slice(0, 40)}`;
+  if (name === 'update_todos') {
+    const list = Array.isArray(args.todos) ? args.todos : [];
+    return `更新任务清单 · ${list.length} 项`;
+  }
   return name;
+}
+
+const TODO_STATUSES = new Set<TodoStatus>(['pending', 'in_progress', 'completed', 'cancelled']);
+
+function normalizeTodos(raw: unknown): TodoItem[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TodoItem[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const r = row as Record<string, unknown>;
+    const id = String(r.id || '').trim();
+    const content = String(r.content || '').trim();
+    const status = String(r.status || 'pending').trim() as TodoStatus;
+    if (!id || !content) continue;
+    out.push({
+      id,
+      content: content.slice(0, 200),
+      status: TODO_STATUSES.has(status) ? status : 'pending',
+    });
+  }
+  return out.slice(0, 40);
+}
+
+function mergeTodos(prev: TodoItem[], patch: TodoItem[], merge: boolean): TodoItem[] {
+  if (!merge) return patch.length ? patch : prev;
+  const map = new Map(prev.map((t) => [t.id, { ...t }]));
+  for (const t of patch) {
+    const old = map.get(t.id);
+    map.set(t.id, old ? { ...old, ...t } : t);
+  }
+  return [...map.values()];
 }
 
 function guardPath(
@@ -198,6 +235,7 @@ export type AgentLoopEvent =
   | { type: 'round'; round: number; forceWrite?: boolean }
   | { type: 'tool_start'; name: string; label: string; path?: string }
   | { type: 'tool'; entry: ToolLogEntry }
+  | { type: 'todos'; todos: TodoItem[] }
   | { type: 'delta'; content: string; reasoning?: string }
   | { type: 'done'; result: AgentTurnResult }
   | { type: 'error'; message: string };
@@ -277,6 +315,7 @@ export async function runAgentLoop(
   let writeHits = 0;
   let editNudges = 0;
   let clarifyAsks = 0;
+  let turnTodos: TodoItem[] = [];
   const editIntent = wantsEdit(userText);
   const createIntent = wantsCreate(userText);
 
@@ -438,11 +477,14 @@ export async function runAgentLoop(
                 modified.add(g.rel);
                 writeHits++;
                 writtenPaths.push(g.rel);
+                const diff = buildUnifiedSnippet(g.rel, '', f.content, 'write');
                 const entry: ToolLogEntry = {
                   name: 'write_file',
                   label: `写文件 ${g.rel}`,
                   ok: true,
                   path: g.rel,
+                  added: diff.added,
+                  removed: diff.removed,
                 };
                 toolLog.push(entry);
                 toolLogWithArgs.push({
@@ -450,7 +492,7 @@ export async function runAgentLoop(
                   args: { path: g.rel, content: f.content },
                 });
                 onEvent({ type: 'tool', entry });
-                fileDiffs.push(buildUnifiedSnippet(g.rel, '', f.content, 'write'));
+                fileDiffs.push(diff);
               } catch (err) {
                 const entry: ToolLogEntry = {
                   name: 'write_file',
@@ -520,9 +562,10 @@ export async function runAgentLoop(
         args = {};
       }
       if (HARNESS_WRITE_TOOLS.has(name)) roundHadWrite = true;
-      else if (name === 'ask_user') {
-        /* 询问用户：不计入只读 streak */
-      } else if (READ_ONLY_TOOLS.has(name) || name) roundHadRead = true;
+      else if (name === 'ask_user' || name === 'update_todos') {
+        /* 询问 / 清单：不计入只读 streak */
+      } else if (READ_ONLY_TOOLS.has(name)) roundHadRead = true;
+      else if (name) roundHadRead = true;
       return { tc, name, args, label: toolLabel(name, args) };
     });
 
@@ -536,6 +579,24 @@ export async function runAgentLoop(
         label: job.label,
         path: String(job.args.path || ''),
       });
+
+      if (job.name === 'update_todos') {
+        const patch = normalizeTodos(job.args.todos);
+        if (!patch.length) {
+          return { ok: false, output: 'todos 为空或格式无效' };
+        }
+        const merge = job.args.merge !== false;
+        turnTodos = mergeTodos(turnTodos, patch, merge);
+        onEvent({ type: 'todos', todos: turnTodos.map((t) => ({ ...t })) });
+        const summary = turnTodos
+          .map((t) => `${t.status}:${t.content}`)
+          .slice(0, 12)
+          .join('；');
+        return {
+          ok: true,
+          output: `已更新任务清单（${turnTodos.length} 项）。${summary}`,
+        };
+      }
 
       if (job.name === 'ask_user') {
         if (!askUser) {
@@ -599,6 +660,8 @@ export async function runAgentLoop(
         label: job.label,
         ok: res.ok,
         path: String(job.args.path || ''),
+        added: res.diff?.added,
+        removed: res.diff?.removed,
       };
       toolLog.push(entry);
       toolLogWithArgs.push({ ...entry, args: job.args });

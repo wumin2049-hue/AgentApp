@@ -203,8 +203,8 @@ export function editNudgeMessage(): string {
 /** 创建类任务首轮提醒 */
 export function createStartMessage(): string {
   return (
-    '【系统】这是创建/搭建类任务。你必须通过工具调用完成：立刻 write_file 写入文件（深层路径会自动建目录）。' +
-    '禁止只输出计划、目录树或代码块就结束。可以一次返回多个 write_file 工具调用。'
+    '【系统】这是创建/搭建类任务。请先 update_todos 列出步骤，再立刻 write_file 写入文件（深层路径会自动建目录）。' +
+    '禁止只输出计划、目录树或代码块就结束。可以一次返回多个 write_file 工具调用，并随进度更新 todos。'
   );
 }
 
@@ -212,20 +212,21 @@ export function createStartMessage(): string {
 export function agentWorkflowInstructions(): string {
   return (
     '工作流与 Cursor / Harness 代码 Agent 一致：\n' +
-    '1. 理解任务 → grep/glob/list_dir 定位 → read_file 精读 → search_replace 或 write_file 落盘 → 简要总结。\n' +
+    '1. 理解任务 → 多步时先 update_todos 建清单 → grep/glob/list_dir 定位 → read_file 精读 → search_replace 或 write_file 落盘 → 更新 todos → 简要总结。\n' +
     '2. 改代码/样式/从 0 建项目：禁止只给计划或建议；必须调用 search_replace（局部改）或 write_file（新建/大改）真正写入手机工作区。\n' +
     '3. 搭建多文件架构：按依赖顺序连续多次 write_file（每次一个文件）；父目录会自动创建。不要把多个文件塞进一次回复的代码块里代替工具调用。\n' +
     '4. 工作区为空时：确认为空后立刻 write_file 创建文件，不要反复 list_dir，不要只输出目录树或步骤清单。\n' +
     '5. 有多种方案需用户决策时：调用 ask_user 弹出选项，等用户选择后再继续写文件；禁止只在正文提问就结束本轮。\n' +
-    '6. 查找最多两轮，之后必须开始改；优先小步落盘，成功后再总结。本轮任务未完成前不要停止。'
+    '6. 查找最多两轮，之后必须开始改；优先小步落盘，成功后再总结。本轮任务未完成前不要停止。\n' +
+    '7. 任务清单：同一时刻 ideally 只有一项 in_progress；完成写入后立刻把对应 todo 标为 completed。'
   );
 }
 
 export function filterWriteToolDefs(tools: unknown[]): unknown[] {
   return tools.filter((t) => {
     const name = String((t as { function?: { name?: string } }).function?.name || '');
-    // 强制落盘轮次仍保留 ask_user，便于方案未定时弹框，选完再写
-    return HARNESS_WRITE_TOOLS.has(name) || name === 'ask_user';
+    // 强制落盘轮次仍保留 ask_user / update_todos
+    return HARNESS_WRITE_TOOLS.has(name) || name === 'ask_user' || name === 'update_todos';
   });
 }
 
