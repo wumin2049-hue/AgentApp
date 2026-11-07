@@ -65,6 +65,8 @@ const askOptions = ref<string[]>([]);
 const askCustom = ref('');
 const expandedDiffPath = ref('');
 const compressBusy = ref(false);
+/** 底部输入悬置区显示（侧边按钮切换） */
+const inputDockOpen = ref(true);
 /** 本轮开始时间（计时） */
 const turnStartedAt = ref(0);
 const elapsedSec = ref(0);
@@ -74,6 +76,19 @@ let askUserResolve: ((answer: string | null) => void) | null = null;
 let scrollRaf = 0;
 
 const PLAN_MODE_KEY = 'mincode_plan_mode';
+const INPUT_DOCK_KEY = 'mincode_input_dock_open';
+
+async function persistInputDock() {
+  await Preferences.set({ key: INPUT_DOCK_KEY, value: inputDockOpen.value ? '1' : '0' });
+}
+
+function toggleInputDock() {
+  inputDockOpen.value = !inputDockOpen.value;
+  void persistInputDock();
+  if (inputDockOpen.value) {
+    void nextTick(() => focusChatInput());
+  }
+}
 
 useFocusTrap(historyDrawerOpen, '#history-drawer-panel');
 useFocusTrap(projectSheetOpen, '#project-sheet-panel');
@@ -575,13 +590,17 @@ onMounted(async () => {
   try {
     const pm = await Preferences.get({ key: PLAN_MODE_KEY });
     planMode.value = pm.value === '1';
+    const dock = await Preferences.get({ key: INPUT_DOCK_KEY });
+    // 未设置时默认展开；显式 '0' 才收起
+    inputDockOpen.value = dock.value !== '0';
   } catch {
     planMode.value = false;
+    inputDockOpen.value = true;
   }
   window.addEventListener('keydown', onGlobalKeydown);
   window.visualViewport?.addEventListener('resize', onViewportResize);
   window.visualViewport?.addEventListener('scroll', onViewportResize);
-  focusChatInput();
+  if (inputDockOpen.value) focusChatInput();
   void scrollToBottom(true);
 });
 
@@ -795,7 +814,7 @@ async function send() {
           });
         }
       },
-      30,
+      0,
       prior,
       chat.workRoot,
       chat.harnessDigest,
@@ -1029,6 +1048,7 @@ function onGlobalKeydown(e: KeyboardEvent) {
   <main
     ref="chatMainEl"
     class="app-main chat-main"
+    :class="{ 'chat-main--dock-closed': !inputDockOpen }"
     :aria-hidden="projectSheetOpen || historyDrawerOpen || toolDetailOpen || modifiedSheetOpen || planSheetOpen || askSheetOpen ? 'true' : undefined"
     @scroll.passive="onChatScroll"
   >
@@ -1237,13 +1257,47 @@ function onGlobalKeydown(e: KeyboardEvent) {
     v-if="showJumpBottom"
     type="button"
     class="jump-bottom-btn"
-    :style="dockPad ? { bottom: `calc(128px + var(--safe-b) + ${dockPad}px)` } : undefined"
+    :class="{ 'jump-bottom-btn--dock-closed': !inputDockOpen }"
+    :style="
+      inputDockOpen && dockPad
+        ? { bottom: `calc(128px + var(--safe-b) + ${dockPad}px)` }
+        : undefined
+    "
     @click="jumpToBottom"
   >
     回到底部
   </button>
 
-  <div class="chat-input-dock" :style="dockPad ? { bottom: `calc(64px + var(--safe-b) + ${dockPad}px)` } : undefined">
+  <!-- 侧边：输入区显隐（层级高于弹框，随时可点） -->
+  <button
+    type="button"
+    class="chat-fab chat-fab--dock"
+    :class="{ 'is-open': inputDockOpen }"
+    :title="inputDockOpen ? '收起输入框' : '打开输入框'"
+    :aria-label="inputDockOpen ? '收起输入框' : '打开输入框'"
+    :aria-expanded="inputDockOpen"
+    @click="toggleInputDock"
+  >
+    <span class="chat-fab-icon" aria-hidden="true">{{ inputDockOpen ? '✕' : '✎' }}</span>
+  </button>
+
+  <!-- 侧边：项目设置 -->
+  <button
+    type="button"
+    class="chat-fab chat-fab--project"
+    :class="{ 'chat-fab--dock-closed': !inputDockOpen }"
+    title="项目与工作区"
+    aria-label="打开项目设置"
+    @click="openProjectSheetSafe"
+  >
+    <span class="chat-fab-icon" aria-hidden="true">▤</span>
+  </button>
+
+  <div
+    v-show="inputDockOpen"
+    class="chat-input-dock"
+    :style="dockPad ? { bottom: `calc(64px + var(--safe-b) + ${dockPad}px)` } : undefined"
+  >
     <div class="chat-input-wrap chat-input-wrap--compact">
       <div v-if="atSuggestOpen && atSuggestPaths.length" class="at-suggest">
         <div class="at-suggest-head">
@@ -1322,16 +1376,6 @@ function onGlobalKeydown(e: KeyboardEvent) {
       </div>
     </div>
   </div>
-
-  <button
-    type="button"
-    class="chat-fab"
-    title="项目与工作区"
-    aria-label="打开项目设置"
-    @click="openProjectSheetSafe"
-  >
-    <span class="chat-fab-icon" aria-hidden="true">▤</span>
-  </button>
 
   <div
     v-if="historyDrawerOpen"

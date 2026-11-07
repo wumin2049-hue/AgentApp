@@ -100,6 +100,21 @@ function mergeTodos(prev: TodoItem[], patch: TodoItem[], merge: boolean): TodoIt
   return [...map.values()];
 }
 
+/** 清单仍有未完成项时禁止提前结束 */
+function todosOpen(todos: TodoItem[]): boolean {
+  return todos.some((t) => t.status === 'pending' || t.status === 'in_progress');
+}
+
+function todosProgressHint(todos: TodoItem[]): string {
+  const pending = todos.filter((t) => t.status === 'pending').length;
+  const active = todos.filter((t) => t.status === 'in_progress').length;
+  const done = todos.filter((t) => t.status === 'completed').length;
+  return `${done} 已完成 · ${active} 进行中 · ${pending} 待处理（共 ${todos.length}）`;
+}
+
+/** 软无限轮次硬顶（对齐 PHP unlimited + 安全封顶） */
+const AGENT_HARD_CAP = 200;
+
 function guardPath(
   path: string,
   workRoot: string,
@@ -257,7 +272,7 @@ export async function runAgentLoop(
   agent: AgentServerConfig,
   userText: string,
   onEvent: (e: AgentLoopEvent) => void,
-  maxRounds = 30,
+  maxRounds = 0,
   priorMessages: Array<{ role: string; content: string }> = [],
   workRoot = '',
   harnessDigest: HarnessDigest = { modified_files: [], read_files: [], grep_keys: [] },
@@ -276,6 +291,12 @@ export async function runAgentLoop(
   if (agent.toolsEnabled === false) {
     throw new Error('已关闭工具调用。请在设置中开启 tools，否则无法实时写入文件');
   }
+
+  // maxRounds<=0：软无限（有待办未完成就续跑），硬顶 AGENT_HARD_CAP
+  const softUnlimited = maxRounds <= 0;
+  let limit = softUnlimited
+    ? AGENT_HARD_CAP
+    : Math.min(Math.max(maxRounds, 1), AGENT_HARD_CAP);
 
   const digestNote = harnessDigestFormat(harnessDigest);
   const projectRules = await loadProjectRulesText(project);
@@ -315,23 +336,44 @@ export async function runAgentLoop(
   let writeHits = 0;
   let editNudges = 0;
   let clarifyAsks = 0;
+  let todoNudges = 0;
+  let softNudgeAt = -1;
   let turnTodos: TodoItem[] = [];
   const editIntent = wantsEdit(userText);
   const createIntent = wantsCreate(userText);
 
-  for (let round = 0; round < maxRounds; round++) {
+  for (let round = 0; round < limit; round++) {
     throwIfAborted(signal);
-    const remaining = maxRounds - round;
+    // 临近上限但清单未完成：自动续期，避免「第 4/7 项执行中就停」
+    if (limit - round <= 2 && todosOpen(turnTodos) && limit < AGENT_HARD_CAP) {
+      limit = Math.min(AGENT_HARD_CAP, limit + 40);
+    }
+    const remaining = limit - round;
     let useTools: unknown[] = [...TOOL_DEFINITIONS];
     let forceTurn = false;
+    const openTodos = todosOpen(turnTodos);
 
-    if (remaining === 2 && toolLog.length) {
+    if (softUnlimited && round > 0 && round % 30 === 0 && round !== softNudgeAt) {
+      softNudgeAt = round;
       messages.push({
         role: 'user',
-        content: editIntent ? roundsLowEditMessage() : '【系统】工具轮次即将用尽。请尽快给出结论；仅在缺关键信息时再调一次工具。',
+        content:
+          openTodos
+            ? `【系统】已进行 ${round + 1} 轮。任务清单仍有未完成项（${todosProgressHint(turnTodos)}）。请继续 write_file / search_replace，并用 update_todos 推进，全部完成前不要总结结束。`
+            : `【系统】已进行 ${round + 1} 轮工具调用。若任务已完成请总结；否则继续用工具落盘，勿重复扫同一目录。`,
       });
     }
-    if (remaining === 1) {
+
+    if (!softUnlimited && remaining === 2 && toolLog.length) {
+      messages.push({
+        role: 'user',
+        content: editIntent || openTodos
+          ? roundsLowEditMessage()
+          : '【系统】工具轮次即将用尽。请尽快给出结论；仅在缺关键信息时再调一次工具。',
+      });
+    }
+    // 真正最后一轮才禁工具；有未完成待办时上面已续期，尽量不走进这里
+    if (remaining === 1 && !openTodos) {
       useTools = [];
       messages.push({
         role: 'user',
@@ -339,30 +381,55 @@ export async function runAgentLoop(
           ? '【系统】最后一轮：若需改代码请立即 search_replace/write_file；否则直接完整作答。'
           : '【系统】本轮不能再调用工具。请根据已掌握信息直接完整作答。',
       });
+    } else if (remaining === 1 && openTodos) {
+      messages.push({
+        role: 'user',
+        content: `【系统】轮次将尽，但清单未完成（${todosProgressHint(turnTodos)}）。请优先完成当前 in_progress 项的 write_file，并 update_todos。`,
+      });
     }
 
     const streakForForce = Math.max(readStreak, readsSinceWrite);
-    // 创建类任务首轮强制调工具；未落盘前可持续强制写入（直到写成功或轮次用尽）
-    if (editIntent && writeHits === 0 && remaining > 1) {
+    // 创建类 / 未落盘 / 清单未完成：可持续强制写入
+    if ((editIntent || openTodos) && remaining > 1) {
       if (createIntent && round === 0 && forceUsed < 3) {
         forceTurn = true;
         forceUsed++;
         messages.push({ role: 'user', content: createStartMessage() });
       } else if (
-        streakForForce >= READ_STREAK_FORCE_AT ||
-        editNudges > 0 ||
-        (createIntent && round > 0)
+        writeHits === 0 &&
+        (streakForForce >= READ_STREAK_FORCE_AT ||
+          editNudges > 0 ||
+          (createIntent && round > 0))
       ) {
         const subset = filterWriteToolDefs(TOOL_DEFINITIONS);
         if (subset.length) {
           useTools = subset;
           forceTurn = true;
-          if (forceUsed < 12) {
+          if (forceUsed < 24) {
             forceUsed++;
             messages.push({ role: 'user', content: forceWriteMessage() });
           }
         }
-      } else if (streakForForce >= READ_STREAK_NUDGE_AT && streakNudges < 3) {
+      } else if (
+        openTodos &&
+        todoNudges > 0 &&
+        writeHits > 0 &&
+        forceUsed < 36
+      ) {
+        // 已有部分写入但清单未完成：收窄为写入+清单工具，逼继续做
+        const subset = filterWriteToolDefs(TOOL_DEFINITIONS);
+        if (subset.length) {
+          useTools = subset;
+          forceTurn = true;
+          forceUsed++;
+          messages.push({
+            role: 'user',
+            content:
+              forceWriteMessage() +
+              ` 当前清单：${todosProgressHint(turnTodos)}。请继续未完成项，不要提前总结。`,
+          });
+        }
+      } else if (writeHits === 0 && streakForForce >= READ_STREAK_NUDGE_AT && streakNudges < 3) {
         streakNudges++;
         messages.push({ role: 'user', content: readStreakMessage(streakForForce) });
       }
@@ -424,8 +491,10 @@ export async function runAgentLoop(
 
     if (!calls.length) {
       const text = String(turn.content || '').trim();
+      const openTodosNow = todosOpen(turnTodos);
       const needsWrite =
-        editIntent && writeHits === 0 && !logHasSuccessfulWrite(toolLog);
+        (editIntent && writeHits === 0 && !logHasSuccessfulWrite(toolLog)) ||
+        openTodosNow;
 
       // 正文在征询方案：弹框让用户选，选完继续跑（禁止当成任务结束）
       if (
@@ -461,10 +530,10 @@ export async function runAgentLoop(
         continue;
       }
 
-      // 编辑任务尚未落盘：一直催/强制写，直到写入成功或轮次用尽（禁止一轮空跑就结束）
+      // 编辑任务尚未落盘，或清单仍有 pending/in_progress：禁止提前结束
       if (needsWrite && remaining > 1) {
         // 先尝试把带路径的代码块直接写入
-        if (text) {
+        if (text && writeHits === 0) {
           const fences = extractFencedFiles(text);
           if (fences.length) {
             const writtenPaths: string[] = [];
@@ -512,10 +581,38 @@ export async function runAgentLoop(
                 (text ? text + '\n\n---\n\n' : '') +
                 `已从回复中的代码块写入 ${writtenPaths.length} 个文件：` +
                 writtenPaths.join('、');
-              // 已有落盘，若正文像还没做完可继续；此处先结束本轮总结
-              break;
+              // 清单未完成则继续，勿因部分落盘就退出
+              if (!todosOpen(turnTodos)) break;
+              messages.push({ role: 'assistant', content: text || finalContent });
+              messages.push({
+                role: 'user',
+                content: `【系统】已写入部分文件，但任务清单未完成（${todosProgressHint(turnTodos)}）。请继续 write_file / search_replace，并用 update_todos 推进。`,
+              });
+              todoNudges++;
+              continue;
             }
           }
+        }
+
+        if (openTodosNow) {
+          todoNudges++;
+          if (todoNudges > 40) {
+            finalContent =
+              (text ? text + '\n\n' : '') +
+              `（已多次催促仍有未完成待办：${todosProgressHint(turnTodos)}，本轮结束）`;
+            break;
+          }
+          messages.push({
+            role: 'assistant',
+            content: text || '（未调用工具，但任务清单未完成）',
+          });
+          messages.push({
+            role: 'user',
+            content:
+              `【系统】任务清单仍有未完成项（${todosProgressHint(turnTodos)}）。` +
+              '禁止提前总结结束。请继续执行当前 in_progress 项：调用 write_file / search_replace 落盘，完成后 update_todos 标记 completed，再推进下一项。',
+          });
+          continue;
         }
 
         editNudges++;
@@ -692,6 +789,12 @@ export async function runAgentLoop(
       readStreak++;
       readsSinceWrite++;
     }
+  }
+
+  if (todosOpen(turnTodos) && finalContent) {
+    finalContent =
+      finalContent +
+      `\n\n---\n\n（提示：任务清单仍有未完成项：${todosProgressHint(turnTodos)}。可再次发送「继续」让 Agent 接着做。）`;
   }
 
   const updatedDigest = harnessDigestFromToolLog(harnessDigest, toolLogWithArgs);

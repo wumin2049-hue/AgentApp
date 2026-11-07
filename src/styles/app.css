@@ -1820,6 +1820,10 @@ code.inline {
   padding-bottom: 160px;
 }
 
+.chat-main--dock-closed {
+  padding-bottom: 88px;
+}
+
 .msg-stream-text {
   margin: 0;
   white-space: pre-wrap;
@@ -1851,6 +1855,10 @@ code.inline {
   font-weight: 600;
   color: var(--accent-deep);
   cursor: pointer;
+}
+
+.jump-bottom-btn--dock-closed {
+  bottom: calc(72px + var(--safe-b));
 }
 
 .at-suggest {
@@ -1944,11 +1952,9 @@ code.inline {
   opacity: 0.75;
 }
 
+/* 悬浮按钮层级高于弹框（sheet z-index:120），弹框打开时仍可切换输入区 */
 .chat-fab {
   position: fixed;
-  right: max(16px, calc(50% - 240px + 16px));
-  bottom: calc(168px + var(--safe-b));
-  z-index: 46;
   width: 48px;
   height: 48px;
   border: none;
@@ -1960,6 +1966,7 @@ code.inline {
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 200;
 }
 
 .chat-fab:active {
@@ -1971,13 +1978,36 @@ code.inline {
   line-height: 1;
 }
 
+/* 左侧：输入区显隐 */
+.chat-fab--dock {
+  left: max(16px, calc(50% - 240px + 16px));
+  right: auto;
+  bottom: calc(80px + var(--safe-b));
+  background: var(--accent-deep, #0b4fbf);
+}
+
+.chat-fab--dock.is-open {
+  background: #5a6a7e;
+}
+
+/* 右侧：项目设置 */
+.chat-fab--project {
+  right: max(16px, calc(50% - 240px + 16px));
+  left: auto;
+  bottom: calc(168px + var(--safe-b));
+}
+
+.chat-fab--project.chat-fab--dock-closed {
+  bottom: calc(80px + var(--safe-b));
+}
+
 .sheet-overlay {
   position: fixed;
   inset: 0;
   z-index: 120;
   background: rgba(12, 26, 46, 0.38);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   padding: 16px;
   padding-bottom: calc(16px + var(--safe-b));
@@ -2002,15 +2032,16 @@ code.inline {
 
 .sheet-panel {
   width: 100%;
-  max-width: 480px;
+  max-width: min(420px, 100%);
   max-height: min(78vh, 640px);
   background: var(--surface);
-  border-radius: var(--radius-lg) var(--radius-lg) var(--radius) var(--radius);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  margin: auto;
 }
 
 .sheet-header {
