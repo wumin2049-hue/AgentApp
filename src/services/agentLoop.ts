@@ -100,6 +100,133 @@ function mergeTodos(prev: TodoItem[], patch: TodoItem[], merge: boolean): TodoIt
   return [...map.values()];
 }
 
+/** 同一时刻至多一项 in_progress，且必须是清单中第一个未完成项 */
+function enforceTodoSequence(todos: TodoItem[]): TodoItem[] {
+  const firstOpen = todos.findIndex((t) => t.status === 'pending' || t.status === 'in_progress');
+  return todos.map((t, i) => {
+    if (t.status === 'completed' || t.status === 'cancelled') return t;
+    if (firstOpen < 0) return t;
+    if (i === firstOpen) return { ...t, status: 'in_progress' };
+    return { ...t, status: 'pending' };
+  });
+}
+
+/**
+ * 首次建清单后锁定条目：禁止新增/删减/整表换项，禁止 cancelled 逃逸，
+ * 必须按原顺序逐项 completed。
+ */
+function applyTodosUpdate(
+  prev: TodoItem[],
+  patch: TodoItem[],
+  merge: boolean,
+): { ok: true; todos: TodoItem[] } | { ok: false; output: string } {
+  if (!patch.length) return { ok: false, output: 'todos 为空或格式无效' };
+
+  if (prev.length === 0) {
+    const seeded = patch.map((t, i) => ({
+      ...t,
+      status:
+        t.status === 'completed'
+          ? ('completed' as TodoStatus)
+          : i === 0
+            ? ('in_progress' as TodoStatus)
+            : ('pending' as TodoStatus),
+    }));
+    return { ok: true, todos: enforceTodoSequence(seeded) };
+  }
+
+  const prevIds = new Set(prev.map((t) => t.id));
+  const unknown = patch.filter((t) => !prevIds.has(t.id));
+  if (unknown.length) {
+    return {
+      ok: false,
+      output:
+        `任务清单已锁定为 ${prev.length} 项，禁止执行中新增。` +
+        `未识别 id：${unknown.map((t) => t.id).join('、')}。` +
+        '请只更新已有项的 status（pending → in_progress → completed）。',
+    };
+  }
+
+  for (const t of patch) {
+    if (t.status !== 'cancelled') continue;
+    const old = prev.find((x) => x.id === t.id);
+    if (old && old.status !== 'cancelled') {
+      return {
+        ok: false,
+        output: `禁止将「${old.content}」标为 cancelled 以提前结束。必须按序全部 completed。`,
+      };
+    }
+  }
+
+  if (!merge) {
+    if (patch.length !== prev.length) {
+      return {
+        ok: false,
+        output:
+          `任务清单已锁定为 ${prev.length} 项，禁止整表替换增减条目（收到 ${patch.length} 项）。` +
+          '请 merge=true，仅更新已有 id 的 status。',
+      };
+    }
+    const patchIds = new Set(patch.map((t) => t.id));
+    const missing = prev.filter((t) => !patchIds.has(t.id));
+    if (missing.length) {
+      return {
+        ok: false,
+        output: `清单已锁定，禁止删除任务项：${missing.map((t) => t.id).join('、')}。`,
+      };
+    }
+    // 保持首次建清单时的顺序，避免模型乱序重排
+    const byId = new Map(patch.map((t) => [t.id, t]));
+    const ordered = prev.map((t) => {
+      const p = byId.get(t.id)!;
+      return { ...t, content: p.content || t.content, status: p.status };
+    });
+    return finalizeTodosPatch(prev, ordered);
+  }
+
+  const tentative = mergeTodos(prev, patch, true);
+  return finalizeTodosPatch(prev, tentative);
+}
+
+function finalizeTodosPatch(
+  prev: TodoItem[],
+  tentative: TodoItem[],
+): { ok: true; todos: TodoItem[] } | { ok: false; output: string } {
+  const prevMap = new Map(prev.map((t) => [t.id, t]));
+  for (let i = 0; i < tentative.length; i++) {
+    const t = tentative[i];
+    const old = prevMap.get(t.id);
+    if (!old) continue;
+    if (t.status === 'completed' && old.status !== 'completed') {
+      for (let j = 0; j < i; j++) {
+        if (tentative[j].status !== 'completed') {
+          return {
+            ok: false,
+            output:
+              `必须按清单顺序完成。请先完成「${tentative[j].content}」，再完成「${t.content}」。`,
+          };
+        }
+      }
+    }
+    if (
+      (t.status === 'in_progress' || t.status === 'completed') &&
+      (old.status === 'pending' || old.status === 'in_progress')
+    ) {
+      for (let j = 0; j < i; j++) {
+        if (tentative[j].status === 'pending' || tentative[j].status === 'in_progress') {
+          if (t.status === 'in_progress' && tentative[j].status === 'pending') {
+            return {
+              ok: false,
+              output: `必须按序执行。当前应先做「${tentative[j].content}」，不能跳到「${t.content}」。`,
+            };
+          }
+        }
+      }
+    }
+  }
+  return { ok: true, todos: enforceTodoSequence(tentative) };
+}
+
 /** 清单仍有未完成项时禁止提前结束 */
 function todosOpen(todos: TodoItem[]): boolean {
   return todos.some((t) => t.status === 'pending' || t.status === 'in_progress');
@@ -110,6 +237,13 @@ function todosProgressHint(todos: TodoItem[]): string {
   const active = todos.filter((t) => t.status === 'in_progress').length;
   const done = todos.filter((t) => t.status === 'completed').length;
   return `${done} 已完成 · ${active} 进行中 · ${pending} 待处理（共 ${todos.length}）`;
+}
+
+/** 提示模型当前必须做的下一项 */
+function nextTodoHint(todos: TodoItem[]): string {
+  const next = todos.find((t) => t.status === 'pending' || t.status === 'in_progress');
+  if (!next) return '';
+  return `下一项按序执行：「${next.content}」(id=${next.id})。`;
 }
 
 /** 软无限轮次硬顶（对齐 PHP unlimited + 安全封顶） */
@@ -359,7 +493,7 @@ export async function runAgentLoop(
         role: 'user',
         content:
           openTodos
-            ? `【系统】已进行 ${round + 1} 轮。任务清单仍有未完成项（${todosProgressHint(turnTodos)}）。请继续 write_file / search_replace，并用 update_todos 推进，全部完成前不要总结结束。`
+            ? `【系统】已进行 ${round + 1} 轮。任务清单仍有未完成项（${todosProgressHint(turnTodos)}）。${nextTodoHint(turnTodos)}禁止新增/删减清单项。请继续 write_file / search_replace，并用 update_todos 推进，全部 completed 前不要总结结束。`
             : `【系统】已进行 ${round + 1} 轮工具调用。若任务已完成请总结；否则继续用工具落盘，勿重复扫同一目录。`,
       });
     }
@@ -384,7 +518,7 @@ export async function runAgentLoop(
     } else if (remaining === 1 && openTodos) {
       messages.push({
         role: 'user',
-        content: `【系统】轮次将尽，但清单未完成（${todosProgressHint(turnTodos)}）。请优先完成当前 in_progress 项的 write_file，并 update_todos。`,
+        content: `【系统】轮次将尽，但清单未完成（${todosProgressHint(turnTodos)}）。${nextTodoHint(turnTodos)}请优先完成当前项的 write_file，并 update_todos 标为 completed。`,
       });
     }
 
@@ -426,7 +560,7 @@ export async function runAgentLoop(
             role: 'user',
             content:
               forceWriteMessage() +
-              ` 当前清单：${todosProgressHint(turnTodos)}。请继续未完成项，不要提前总结。`,
+              ` 当前清单：${todosProgressHint(turnTodos)}。${nextTodoHint(turnTodos)}禁止新增任务项，请按序继续，不要提前总结。`,
           });
         }
       } else if (writeHits === 0 && streakForForce >= READ_STREAK_NUDGE_AT && streakNudges < 3) {
@@ -586,7 +720,7 @@ export async function runAgentLoop(
               messages.push({ role: 'assistant', content: text || finalContent });
               messages.push({
                 role: 'user',
-                content: `【系统】已写入部分文件，但任务清单未完成（${todosProgressHint(turnTodos)}）。请继续 write_file / search_replace，并用 update_todos 推进。`,
+                content: `【系统】已写入部分文件，但任务清单未完成（${todosProgressHint(turnTodos)}）。${nextTodoHint(turnTodos)}请继续 write_file / search_replace，并用 update_todos 推进；禁止新增清单项。`,
               });
               todoNudges++;
               continue;
@@ -609,8 +743,8 @@ export async function runAgentLoop(
           messages.push({
             role: 'user',
             content:
-              `【系统】任务清单仍有未完成项（${todosProgressHint(turnTodos)}）。` +
-              '禁止提前总结结束。请继续执行当前 in_progress 项：调用 write_file / search_replace 落盘，完成后 update_todos 标记 completed，再推进下一项。',
+              `【系统】任务清单仍有未完成项（${todosProgressHint(turnTodos)}）。${nextTodoHint(turnTodos)}` +
+              '禁止提前总结结束，禁止新增/取消清单项。请只做当前项：write_file / search_replace 落盘后 update_todos 标 completed，再做下一项，直到全部完成。',
           });
           continue;
         }
@@ -683,15 +817,22 @@ export async function runAgentLoop(
           return { ok: false, output: 'todos 为空或格式无效' };
         }
         const merge = job.args.merge !== false;
-        turnTodos = mergeTodos(turnTodos, patch, merge);
+        const applied = applyTodosUpdate(turnTodos, patch, merge);
+        if (!applied.ok) {
+          return { ok: false, output: applied.output };
+        }
+        turnTodos = applied.todos;
         onEvent({ type: 'todos', todos: turnTodos.map((t) => ({ ...t })) });
         const summary = turnTodos
           .map((t) => `${t.status}:${t.content}`)
           .slice(0, 12)
           .join('；');
+        const next = nextTodoHint(turnTodos);
         return {
           ok: true,
-          output: `已更新任务清单（${turnTodos.length} 项）。${summary}`,
+          output:
+            `已更新任务清单（锁定 ${turnTodos.length} 项，须按序全部完成）。${summary}` +
+            (next ? ` ${next}` : ' 全部已完成。'),
         };
       }
 
@@ -794,7 +935,7 @@ export async function runAgentLoop(
   if (todosOpen(turnTodos) && finalContent) {
     finalContent =
       finalContent +
-      `\n\n---\n\n（提示：任务清单仍有未完成项：${todosProgressHint(turnTodos)}。可再次发送「继续」让 Agent 接着做。）`;
+      `\n\n---\n\n（提示：任务清单仍有未完成项：${todosProgressHint(turnTodos)}。${nextTodoHint(turnTodos)}可再次发送「继续」让 Agent 按序接着做。）`;
   }
 
   const updatedDigest = harnessDigestFromToolLog(harnessDigest, toolLogWithArgs);

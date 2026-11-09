@@ -153,13 +153,14 @@ export const TOOL_DEFINITIONS = [
     function: {
       name: 'update_todos',
       description:
-        '创建或更新本轮任务清单（对齐 Harness 任务面板）。多步搭建/改动时先建清单，每完成一步更新 status；可与 write_file 穿插调用。',
+        '创建或更新本轮任务清单。多步任务须首次一次性列出全部步骤；建完后清单锁定，只能按 id 更新 status，禁止执行中新增/删减。必须按顺序：同一时刻仅一项 in_progress，完成后标 completed 再推进下一项，全部 completed 前不要结束。',
       parameters: {
         type: 'object',
         properties: {
           merge: {
             type: 'boolean',
-            description: 'true=按 id 合并更新；false=整表替换。默认 true',
+            description:
+              'true=按已有 id 合并更新 status（推荐）；false=仅首次建清单时可用。清单锁定后 false 且增减条目会被拒绝。默认 true',
           },
           todos: {
             type: 'array',
@@ -171,6 +172,8 @@ export const TOOL_DEFINITIONS = [
                 status: {
                   type: 'string',
                   enum: ['pending', 'in_progress', 'completed', 'cancelled'],
+                  description:
+                    '按序推进：pending → in_progress → completed。禁止用 cancelled 跳过未做项',
                 },
               },
               required: ['id', 'content', 'status'],
