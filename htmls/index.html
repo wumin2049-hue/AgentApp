@@ -11,36 +11,101 @@
 </head>
 <body>
   <div class="app-shell">
-    <div class="preview-banner">静态 HTML 预览 · 浅蓝科技主题</div>
+    <div class="preview-banner">静态预览 · 概览</div>
 
-    <header class="app-header">
-      <h1>mincode</h1>
-      <div class="sub">移动端 AI 编程助手 · 多项目 · 本地改码 · FTP 同步</div>
+    <header class="app-header app-header-glow">
+      <h1>欢迎使用 ABS</h1>
+      <div class="sub">深色模式：自动跟随系统外观切换，夜间使用更护眼</div>
     </header>
 
     <main class="app-main">
-      <div class="card">
-        <span class="card-title">当前项目</span>
-        <div class="project-name">官网前端</div>
-        <div class="card-meta">
-          <div class="meta-row"><span aria-hidden="true">📁</span><span>Documents/www</span></div>
-          <div class="meta-row"><span aria-hidden="true">🤖</span><span>deepseek-chat</span></div>
-          <div class="meta-row"><span aria-hidden="true">🌐</span><span>https://ai.1k0.com/v1</span></div>
+      <!-- 当前项目英雄卡 -->
+      <div class="hero-card">
+        <span class="hero-eyebrow">◈ 当前项目</span>
+        <h2 class="hero-title">官网前端</h2>
+        <div class="hero-meta">
+          Documents/www · deepseek-chat<br />
+          ai.1k0.com · 已授权读/写/列表
         </div>
-        <div class="btn-row">
+        <div class="hero-actions">
           <a class="btn btn-primary" href="chat.html">开始改代码</a>
           <a class="btn btn-ghost" href="ftp.html">FTP 文件</a>
         </div>
       </div>
 
+      <!-- 统计 -->
+      <div class="stat-grid">
+        <div class="stat-cell is-accent">
+          <span class="stat-value">128</span>
+          <span class="stat-label">沙盒文件</span>
+        </div>
+        <div class="stat-cell is-ok">
+          <span class="stat-value">3</span>
+          <span class="stat-label">待上传</span>
+        </div>
+        <div class="stat-cell is-warn">
+          <span class="stat-value">2</span>
+          <span class="stat-label">待写回</span>
+        </div>
+      </div>
+
+      <!-- 最近会话 -->
+      <div class="section-head">
+        <span class="section-head-title">最近会话</span>
+        <a class="section-head-action" href="chat.html">全部 →</a>
+      </div>
+      <div class="card" style="padding:6px 16px">
+        <a class="list-row" href="chat.html" style="color:inherit;text-decoration:none">
+          <span class="list-row-main">
+            <span class="list-row-title">改首页标题</span>
+            <span class="list-row-sub">把首页 hero 区域的标题改成「欢迎使用 ABS」…</span>
+          </span>
+          <span class="list-row-tail">14:26</span>
+        </a>
+        <a class="list-row" href="chat.html" style="color:inherit;text-decoration:none">
+          <span class="list-row-main">
+            <span class="list-row-title">最近项目列表</span>
+            <span class="list-row-sub">再给首页加一个「最近项目」列表，样式跟卡片一致</span>
+          </span>
+          <span class="list-row-tail">11:02</span>
+        </a>
+        <a class="list-row" href="chat.html" style="color:inherit;text-decoration:none">
+          <span class="list-row-main">
+            <span class="list-row-title">FTP 上传脚本检查</span>
+            <span class="list-row-sub">帮我检查 FTP 上传脚本的被动模式配置</span>
+          </span>
+          <span class="list-row-tail">昨天</span>
+        </a>
+      </div>
+
+      <!-- 工作流 -->
+      <div class="section-head">
+        <span class="section-head-title">工作流</span>
+      </div>
       <div class="card">
-        <span class="card-title">工作流</span>
         <ol class="flow-list">
           <li>在「设置」里配置 API 地址、Key 与模型（全局共用）</li>
-          <li>选择手机本地代码目录</li>
-          <li>对话中 AI 读写本地沙盒中的项目文件</li>
+          <li>选择手机本地代码目录并授权读写</li>
+          <li>对话中 AI 直接读写手机项目目录（自动建父目录）</li>
           <li>改完后一键 FTP 上传变更文件</li>
         </ol>
+      </div>
+
+      <!-- 快捷入口 -->
+      <div class="section-head">
+        <span class="section-head-title">快捷入口</span>
+      </div>
+      <div class="sp-grid-2">
+        <a class="card card-clickable" href="projects.html">
+          <div class="sp-icon">▤</div>
+          <strong style="font-size:13.5px">项目管理</strong>
+          <div class="card-meta" style="margin-top:2px;font-size:11.5px">2 个项目</div>
+        </a>
+        <a class="card card-clickable" href="settings.html">
+          <div class="sp-icon">⚙</div>
+          <strong style="font-size:13.5px">全局设置</strong>
+          <div class="card-meta" style="margin-top:2px;font-size:11.5px">API · 模型 · 目录</div>
+        </a>
       </div>
 
       <a href="settings.html" class="section-link">全局设置 →</a>
@@ -54,5 +119,29 @@
       <a href="settings.html"><span class="tab-icon">⚙</span><span>设置</span></a>
     </nav>
   </div>
+
+  <div class="preview-nav" id="previewNav">
+    <div class="preview-nav-menu">
+      <a href="index.html" class="active">首页</a>
+      <a href="chat.html">对话</a>
+      <a href="projects.html">项目</a>
+      <a href="project-edit.html">编辑项目</a>
+      <a href="ftp.html">FTP</a>
+      <a href="settings.html">设置</a>
+    </div>
+    <button type="button" class="preview-nav-toggle" id="previewNavToggle" title="切换页面">⇅</button>
+  </div>
+
+  <script>
+    (function () {
+      var nav = document.getElementById('previewNav');
+      var t = document.getElementById('previewNavToggle');
+      if (!nav || !t) return;
+      t.addEventListener('click', function () { nav.classList.toggle('is-open'); });
+      document.addEventListener('click', function (e) {
+        if (!nav.contains(e.target)) nav.classList.remove('is-open');
+      });
+    })();
+  </script>
 </body>
 </html>

@@ -288,7 +288,8 @@ async function pickStorageRoot() {
 .model-chips {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 14px;
 }
 </style>

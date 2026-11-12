@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   AgentTurnResult,
   HarnessDigest,
+  HarnessTurnPanels,
   ToolLogEntry,
   ChatSessionMeta,
   FileDiffSnippet,
@@ -67,6 +68,12 @@ export const useChatStore = defineStore('chat', {
     turnTimeline: [] as TimelineItem[],
     /** 本轮任务清单 */
     turnTodos: [] as TodoItem[],
+    /** 本轮面板快照（分析 / 思考 / 任务 / 修改文件） */
+    turnPanels: null as HarnessTurnPanels | null,
+    /** 历史轮次面板（按 turnId 归档，供回看） */
+    turnPanelsHistory: [] as HarnessTurnPanels[],
+    /** 当前正在查看的历史轮次 id（'' = 最新轮） */
+    viewingTurnId: '' as string,
     harnessDigest: emptyDigest() as HarnessDigest,
     error: '' as string,
     storageReady: false as boolean,
@@ -367,7 +374,30 @@ export const useChatStore = defineStore('chat', {
       this.turnFileDiffs = [];
       this.turnTimeline = [];
       this.turnTodos = [];
+      this.turnPanels = null;
+      this.viewingTurnId = '';
       this.error = '';
+    },
+
+    setTurnPanels(panels: HarnessTurnPanels | null) {
+      this.turnPanels = panels ? structuredClone(panels) : null;
+    },
+
+    /** 结束本轮：归档面板快照，供回看 */
+    archiveTurnPanels(panels: HarnessTurnPanels | null) {
+      if (!panels) return;
+      const snapshot = structuredClone(panels);
+      const i = this.turnPanelsHistory.findIndex((p) => p.turnId === snapshot.turnId);
+      if (i >= 0) this.turnPanelsHistory[i] = snapshot;
+      else this.turnPanelsHistory.push(snapshot);
+      if (this.turnPanelsHistory.length > 40) {
+        this.turnPanelsHistory = this.turnPanelsHistory.slice(-40);
+      }
+      this.turnPanels = snapshot;
+    },
+
+    viewTurnPanels(turnId: string) {
+      this.viewingTurnId = turnId;
     },
 
     pushTimeline(item: Omit<TimelineItem, 'id' | 'at'> & { id?: string; at?: number }) {
@@ -458,6 +488,7 @@ export const useChatStore = defineStore('chat', {
       this.toolLog = result.toolLog;
       this.turnModifiedFiles = [...(result.modifiedFiles || [])];
       this.turnFileDiffs = [...(result.fileDiffs || [])];
+      if (result.panels) this.archiveTurnPanels(result.panels);
       // 累计本轮修改到会话 lastModified，避免覆盖历史轮次
       const merged = new Set([...this.lastModified, ...result.modifiedFiles]);
       this.lastModified = [...merged];

@@ -86,6 +86,71 @@ export interface TodoItem {
   status: TodoStatus;
 }
 
+/* ------------------------------------------------------------------ *
+ * Harness 式对话面板：分析 / 读取编辑 / 思考 / 任务 / 修改文件
+ * 一次对话（turn）内各板块随 AI 接口结果不断追加记录与状态。
+ * ------------------------------------------------------------------ */
+
+/** 分析阶段（对齐 Harness 的 Explore / Plan / Implement / Verify） */
+export type HarnessPhase = 'analysis' | 'read' | 'edit' | 'verify';
+
+export const HARNESS_PHASE_LABEL: Record<HarnessPhase, string> = {
+  analysis: '分析',
+  read: '读取',
+  edit: '编辑',
+  verify: '校验',
+};
+
+export interface HarnessAnalysisEntry {
+  id: string;
+  phase: HarnessPhase;
+  at: number;
+  /** 一句话结论 / 事件描述 */
+  text: string;
+  /** 关联文件或搜索目标 */
+  path?: string;
+  /** 该阶段新增/失败的工具次数（UI 折叠展示） */
+  count?: number;
+  ok?: boolean;
+}
+
+export interface HarnessFileChange {
+  path: string;
+  /** write=新建/整写，replace=局部替换，delete=删除 */
+  kind: 'write' | 'replace' | 'delete';
+  added?: number;
+  removed?: number;
+  at: number;
+}
+
+export interface HarnessTodoGroup {
+  inProgress: TodoItem[];
+  pending: TodoItem[];
+  completed: TodoItem[];
+}
+
+/** 一次对话（一条用户消息 → Assistant 结束）的完整面板快照 */
+export interface HarnessTurnPanels {
+  turnId: string;
+  startedAt: number;
+  endedAt?: number;
+  /** 用户原始输入 */
+  prompt: string;
+  analysis: HarnessAnalysisEntry[];
+  /** 思考结果（按轮次聚合的 reasoning） */
+  thinking: string[];
+  todos: TodoItem[];
+  files: HarnessFileChange[];
+  /** 本轮工具统计 */
+  toolCount: number;
+  readCount: number;
+  writeCount: number;
+  /** 是否全部任务项已完成 */
+  allDone: boolean;
+  /** 异常/中断说明 */
+  error?: string;
+}
+
 export type TimelineItemKind = 'thinking' | 'tool_start' | 'tool' | 'todos' | 'round';
 
 /** 本轮 Harness 式时间线条目 */
@@ -129,6 +194,8 @@ export interface AgentTurnResult {
   modifiedFiles: string[];
   fileDiffs?: FileDiffSnippet[];
   harnessDigest?: HarnessDigest;
+  /** 本轮 Harness 面板快照（分析/思考/任务/修改文件） */
+  panels?: HarnessTurnPanels;
 }
 
 export interface FtpEntry {

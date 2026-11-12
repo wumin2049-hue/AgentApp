@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="light" />
   <meta name="theme-color" content="#e8f1fc" />
-  <title>FTP 文件</title>
+  <title>mincode · FTP 文件</title>
   <link rel="stylesheet" href="assets/app.css" />
+  <link rel="icon" type="image/png" href="assets/icon.png" />
 </head>
 <body>
   <div class="app-shell">
-    <div class="preview-banner">静态 HTML 预览 · 浅蓝科技主题</div>
+    <div class="preview-banner">静态预览 · FTP 浏览</div>
 
     <header class="app-header">
       <h1>FTP 文件</h1>
@@ -28,8 +29,8 @@
       </div>
 
       <div class="segment-tabs">
-        <button type="button" class="segment-tab active">线下</button>
-        <button type="button" class="segment-tab">线上</button>
+        <button type="button" class="segment-tab active" data-tab="local">线下（沙盒）</button>
+        <button type="button" class="segment-tab" data-tab="remote">线上（FTP）</button>
       </div>
 
       <div class="card ftp-toolbar">
@@ -38,37 +39,80 @@
         <button class="btn btn-primary btn-sm" type="button">刷新</button>
       </div>
 
-      <div class="batch-bar">
-        <button class="btn btn-ghost btn-sm" type="button">同步手机</button>
-        <button class="btn btn-ghost btn-sm" type="button">全部上传（递归）</button>
-        <button class="btn btn-ghost btn-sm" type="button">新建夹</button>
-      </div>
+      <!-- 线下 -->
+      <div data-panel="local">
+        <div class="batch-bar">
+          <button class="btn btn-ghost btn-sm" type="button">同步手机</button>
+          <button class="btn btn-ghost btn-sm" type="button">全部上传（递归）</button>
+          <button class="btn btn-ghost btn-sm" type="button">新建夹</button>
+        </div>
 
-      <div class="ftp-entry selected">
-        <span class="icon" aria-hidden="true">📄</span>
-        <span class="entry-name">Header.vue</span>
-        <span class="size">2048 B</span>
-      </div>
-      <div class="ftp-entry">
-        <span class="icon" aria-hidden="true">📁</span>
-        <span class="entry-name">views</span>
-      </div>
-      <div class="ftp-entry">
-        <span class="icon" aria-hidden="true">📄</span>
-        <span class="entry-name">App.vue</span>
-        <span class="size">1024 B</span>
-      </div>
+        <div class="ftp-entry selected">
+          <span class="icon" aria-hidden="true">📁</span>
+          <span class="entry-name">views</span>
+        </div>
+        <div class="ftp-entry">
+          <span class="icon" aria-hidden="true">📄</span>
+          <span class="entry-name">Header.vue</span>
+          <span class="size">2048 B</span>
+        </div>
+        <div class="ftp-entry">
+          <span class="icon" aria-hidden="true">📄</span>
+          <span class="entry-name">Footer.vue</span>
+          <span class="size">1536 B</span>
+        </div>
+        <div class="ftp-entry">
+          <span class="icon" aria-hidden="true">📄</span>
+          <span class="entry-name">App.vue</span>
+          <span class="size">1024 B</span>
+        </div>
 
-      <div class="action-sheet">
-        <span class="action-sheet-title">Header.vue</span>
-        <div class="action-sheet-btns">
-          <button class="btn btn-ghost btn-sm" type="button">查看</button>
-          <button class="btn btn-primary btn-sm" type="button">上传</button>
-          <button class="btn btn-ghost btn-sm" type="button">写回手机</button>
-          <button class="btn btn-danger btn-sm" type="button">删除</button>
-          <button class="btn btn-ghost btn-sm" type="button">取消</button>
+        <div class="action-sheet">
+          <span class="action-sheet-title">views</span>
+          <div class="action-sheet-btns">
+            <button class="btn btn-ghost btn-sm" type="button">进入</button>
+            <button class="btn btn-primary btn-sm" type="button">上传</button>
+            <button class="btn btn-ghost btn-sm" type="button">写回手机</button>
+            <button class="btn btn-danger btn-sm" type="button">删除</button>
+            <button class="btn btn-ghost btn-sm" type="button">取消</button>
+          </div>
         </div>
       </div>
+
+      <!-- 线上 -->
+      <div data-panel="remote" hidden>
+        <div class="batch-bar">
+          <button class="btn btn-ghost btn-sm" type="button">全部下载</button>
+          <button class="btn btn-ghost btn-sm" type="button">新建夹</button>
+        </div>
+
+        <div class="ftp-entry">
+          <span class="icon" aria-hidden="true">📁</span>
+          <span class="entry-name">css</span>
+        </div>
+        <div class="ftp-entry selected">
+          <span class="icon" aria-hidden="true">📄</span>
+          <span class="entry-name">index.html</span>
+          <span class="size">5120 B</span>
+        </div>
+        <div class="ftp-entry">
+          <span class="icon" aria-hidden="true">📄</span>
+          <span class="entry-name">robots.txt</span>
+          <span class="size">128 B</span>
+        </div>
+
+        <div class="action-sheet">
+          <span class="action-sheet-title">index.html</span>
+          <div class="action-sheet-btns">
+            <button class="btn btn-ghost btn-sm" type="button">查看</button>
+            <button class="btn btn-primary btn-sm" type="button">下载</button>
+            <button class="btn btn-danger btn-sm" type="button">删除</button>
+            <button class="btn btn-ghost btn-sm" type="button">取消</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="hint-text ok">已上传 2 个文件：src/index.html、src/styles/app.css</p>
     </main>
 
     <nav class="tab-bar">
@@ -79,5 +123,44 @@
       <a href="settings.html"><span class="tab-icon">⚙</span><span>设置</span></a>
     </nav>
   </div>
+
+  <div class="preview-nav" id="previewNav">
+    <div class="preview-nav-menu">
+      <a href="index.html">首页</a>
+      <a href="chat.html">对话</a>
+      <a href="projects.html">项目</a>
+      <a href="project-edit.html">编辑项目</a>
+      <a href="ftp.html" class="active">FTP</a>
+      <a href="settings.html">设置</a>
+    </div>
+    <button type="button" class="preview-nav-toggle" id="previewNavToggle" title="切换页面">⇅</button>
+  </div>
+
+  <script>
+    (function () {
+      var nav = document.getElementById('previewNav');
+      var t = document.getElementById('previewNavToggle');
+      if (nav && t) {
+        t.addEventListener('click', function () { nav.classList.toggle('is-open'); });
+        document.addEventListener('click', function (e) {
+          if (!nav.contains(e.target)) nav.classList.remove('is-open');
+        });
+      }
+
+      /* 线下 / 线上切换 */
+      var tabs = Array.prototype.slice.call(document.querySelectorAll('.segment-tab'));
+      tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          var key = tab.getAttribute('data-tab');
+          tabs.forEach(function (x) { x.classList.toggle('active', x === tab); });
+          Array.prototype.forEach.call(document.querySelectorAll('[data-panel]'), function (p) {
+            if (p.hasAttribute('data-tab-key') || p.classList.contains('ftp-page')) return;
+            var name = p.getAttribute('data-panel');
+            if (name === 'local' || name === 'remote') p.hidden = name !== key;
+          });
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

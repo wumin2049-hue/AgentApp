@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="light" />
   <meta name="theme-color" content="#e8f1fc" />
-  <title>AI 设置</title>
+  <title>mincode · AI 设置</title>
   <link rel="stylesheet" href="assets/app.css" />
+  <link rel="icon" type="image/png" href="assets/icon.png" />
 </head>
 <body>
   <div class="app-shell">
-    <div class="preview-banner">静态 HTML 预览 · 浅蓝科技主题</div>
+    <div class="preview-banner">静态预览 · 全局设置</div>
 
     <header class="app-header app-header-glow">
       <h1>AI 设置</h1>
@@ -18,23 +19,34 @@
     </header>
 
     <main class="app-main">
-      <div class="card card-warn">
+      <!-- 数据目录：已授权态 -->
+      <div class="card card-premium">
         <span class="card-title">手机数据目录（必选）</span>
         <p class="card-desc">
           必须授权一个手机本地文件夹。系统会弹出目录选择器，请点「使用此文件夹 / 允许」以授予读、写、列表权限；对话改代码、同步项目都依赖此授权。
         </p>
-        <p class="hint-text" style="margin:0 0 12px">
-          当前：<strong>未授权（请选择手机文件夹）</strong>
+        <p class="hint-text sp-b3">
+          当前：<strong style="color:var(--ok)">Documents/abs-chats · 已授权读/写/列表</strong>
         </p>
-        <p class="hint-text" style="margin:0 0 12px">
-          结构：<code>app/settings.json</code>、<code>app/projects.json</code>、
-          <code>{项目ID}/…</code>
+        <p class="hint-text sp-b3">
+          结构：<code>app/settings.json</code>、<code>app/projects.json</code>、<code>{项目ID}/…</code>
         </p>
-        <div class="btn-row" style="margin-top:0">
-          <button class="btn btn-primary" type="button">选择手机文件夹并授权</button>
+        <div class="btn-row">
+          <button class="btn btn-primary" type="button">重新选择并授权</button>
         </div>
       </div>
 
+      <!-- 未授权态的告警卡（预览对照） -->
+      <div class="card card-warn">
+        <span class="card-title">未授权状态示例</span>
+        <p class="card-desc sp-b3">
+          当未授权目录时，此卡变为红色告警；对话页也会拦截发送并提示去授权。
+        </p>
+        <p class="hint-text sp-b3">当前：<strong>未授权（请选择手机文件夹）</strong></p>
+        <button class="btn btn-primary btn-block" type="button">选择手机文件夹并授权</button>
+      </div>
+
+      <!-- 接口配置 -->
       <div class="card card-premium">
         <span class="card-title">接口配置</span>
         <p class="card-desc">对齐 agent Harness：填写上游 API 地址与 Key，本地执行工具循环。</p>
@@ -44,20 +56,23 @@
         </div>
         <div class="field">
           <label>API Key</label>
-          <input type="password" placeholder="sk-…" autocomplete="off" />
+          <input type="password" value="sk-xxxxxxxxxxxxxxxx" placeholder="已保存 sk-…3f2a" autocomplete="off" />
         </div>
-        <div class="btn-row" style="margin-top:12px">
-          <button class="btn btn-primary" type="button">测试连接</button>
+        <div class="btn-row sp-t3">
+          <button class="btn btn-primary" type="button" id="testBtn">测试连接</button>
           <button class="btn btn-ghost" type="button">保存</button>
         </div>
-        <p class="hint-text ok" style="margin-top:10px">连接正常，可以拉取模型并开始对话</p>
-        <ul class="test-steps">
-          <li>解析 API Base</li>
-          <li>Bearer 鉴权通过</li>
-          <li>models 列表可读</li>
+        <p class="hint-text ok sp-t3" id="testMsg" hidden>连接正常，可以拉取模型并开始对话</p>
+        <ul class="test-steps" id="testSteps" hidden>
+          <li>✓ API 地址：https://ai.1k0.com/v1</li>
+          <li>✓ 使用原生 HTTP（绕过 CORS）</li>
+          <li>✓ /models：42 个模型</li>
+          <li>示例：deepseek-chat、gpt-4o-mini、claude-3.5-sonnet…</li>
         </ul>
+        <p class="hint-text sp-t3">点「测试连接」查看分步结果（预览已内置“通过”样例）</p>
       </div>
 
+      <!-- 模型 -->
       <div class="card card-premium">
         <span class="card-title">模型</span>
         <div class="field">
@@ -70,32 +85,35 @@
         <div class="model-chips">
           <button type="button" class="chip active">deepseek-chat</button>
           <button type="button" class="chip">gpt-4o-mini</button>
+          <button type="button" class="chip">claude-3.5-sonnet</button>
+          <button type="button" class="chip">qwen-max</button>
         </div>
       </div>
 
+      <!-- 高级 -->
       <div class="card">
         <span class="card-title">高级</span>
-        <div class="field">
-          <label>Max Tokens</label>
-          <input type="number" value="8192" />
-        </div>
-        <div class="field">
-          <label>Temperature</label>
-          <input type="number" step="0.1" min="0" max="2" value="0.7" />
-        </div>
+        <div class="field"><label>Max Tokens</label><input type="number" value="8192" /></div>
+        <div class="field"><label>Temperature</label><input type="number" step="0.1" min="0" max="2" value="0.7" /></div>
         <div class="field">
           <label>系统补充说明（可选）</label>
-          <textarea rows="3" placeholder="追加到每次对话的 system prompt"></textarea>
+          <textarea rows="3" placeholder="追加到每次对话的 system prompt">优先使用 TypeScript；回答保持简洁并附上改动文件清单。</textarea>
         </div>
-        <button class="btn btn-ghost btn-block" type="button" style="margin-top:8px">保存高级设置</button>
+        <button class="btn btn-ghost btn-block sp-t2" type="button">保存高级设置</button>
       </div>
 
+      <!-- 关于 -->
       <div class="card">
         <span class="card-title">关于</span>
-        <p class="hint-text" style="margin:0">mincode v1.0.21 · 工具本地执行 · 模型经原生 HTTP 直连上游</p>
-        <p class="hint-text" style="margin:8px 0 0">
+        <p class="hint-text sp-0">mincode v1.0.36 · 工具本地执行 · 模型经原生 HTTP 直连上游</p>
+        <p class="hint-text sp-t2">
           配置同时写入 Preferences 与数据目录；外部目录会申请持久权限，避免重开后失效。
         </p>
+        <p class="hint-text sp-t2">
+          安全：API Key / FTP 密码以明文保存在本机 Preferences（未进系统 Keychain）。安装包已关闭
+          <code>allowBackup</code>，请勿用未加密云备份导出应用数据。
+        </p>
+        <p class="hint-text sp-t2">对齐说明见仓库 <code>docs/cursor-harness-对齐待办.md</code>。</p>
       </div>
     </main>
 
@@ -107,5 +125,47 @@
       <a href="settings.html" class="active"><span class="tab-icon">⚙</span><span>设置</span></a>
     </nav>
   </div>
+
+  <div class="preview-nav" id="previewNav">
+    <div class="preview-nav-menu">
+      <a href="index.html">首页</a>
+      <a href="chat.html">对话</a>
+      <a href="projects.html">项目</a>
+      <a href="project-edit.html">编辑项目</a>
+      <a href="ftp.html">FTP</a>
+      <a href="settings.html" class="active">设置</a>
+    </div>
+    <button type="button" class="preview-nav-toggle" id="previewNavToggle" title="切换页面">⇅</button>
+  </div>
+
+  <script>
+    (function () {
+      var nav = document.getElementById('previewNav');
+      var t = document.getElementById('previewNavToggle');
+      if (nav && t) {
+        t.addEventListener('click', function () { nav.classList.toggle('is-open'); });
+        document.addEventListener('click', function (e) {
+          if (!nav.contains(e.target)) nav.classList.remove('is-open');
+        });
+      }
+
+      /* 预览：点测试连接展示分步结果 */
+      var btn = document.getElementById('testBtn');
+      var msg = document.getElementById('testMsg');
+      var steps = document.getElementById('testSteps');
+      if (btn && msg && steps) {
+        btn.addEventListener('click', function () {
+          btn.textContent = '测试中…';
+          btn.disabled = true;
+          setTimeout(function () {
+            msg.hidden = false;
+            steps.hidden = false;
+            btn.textContent = '测试连接';
+            btn.disabled = false;
+          }, 600);
+        });
+      }
+    })();
+  </script>
 </body>
 </html>

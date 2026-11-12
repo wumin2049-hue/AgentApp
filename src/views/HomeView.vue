@@ -12,8 +12,8 @@ const active = computed(() => projects.active);
 
 <template>
   <header class="app-header">
-    <h1>mincode</h1>
-    <div class="sub">移动端 AI 编程助手 · 多项目 · 本地改码 · FTP 同步</div>
+    <h1>欢迎使用 ABS</h1>
+    <div class="sub">深色模式：自动跟随系统外观切换，夜间使用更护眼</div>
   </header>
   <main class="app-main">
     <div class="card">

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>mincode · 静态预览总览</title>
+  <link rel="stylesheet" href="assets/app.css" />
+  <link rel="icon" type="image/png" href="assets/icon.png" />
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(ellipse 120% 60% at 50% -10%, rgba(59, 138, 255, 0.2), transparent 60%),
+        linear-gradient(180deg, #f1f7ff, #e3eefa);
+      padding: 32px 20px 48px;
+    }
+    .pv-wrap { max-width: 1020px; margin: 0 auto; }
+    .pv-head { margin-bottom: 26px; }
+    .pv-head h1 {
+      margin: 0;
+      font-size: 27px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      background: linear-gradient(120deg, #0c1a2e 10%, #1a6ef5 120%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .pv-head p { margin: 8px 0 0; font-size: 13px; color: var(--muted); line-height: 1.6; }
+    .pv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(266px, 1fr));
+      gap: 16px;
+    }
+    .pv-card {
+      display: block;
+      padding: 18px;
+      border-radius: var(--radius);
+      background: #fff;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+      color: inherit;
+      text-decoration: none;
+      transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease), border-color 0.18s;
+    }
+    .pv-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(26, 110, 245, 0.3);
+      box-shadow: var(--shadow-lg);
+    }
+    .pv-icon {
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 11px;
+      font-size: 17px;
+      margin-bottom: 12px;
+      color: var(--accent-deep);
+      background: linear-gradient(135deg, rgba(26, 110, 245, 0.16), rgba(8, 145, 212, 0.07));
+      border: 1px solid rgba(26, 110, 245, 0.14);
+    }
+    .pv-title { font-size: 15px; font-weight: 700; color: var(--text); }
+    .pv-desc { margin-top: 5px; font-size: 12px; line-height: 1.55; color: var(--muted); }
+    .pv-tags { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 5px; }
+    .pv-tag {
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 999px;
+      color: var(--accent-deep);
+      background: var(--accent-soft);
+    }
+    .pv-note {
+      margin-top: 26px;
+      padding: 14px 16px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      line-height: 1.65;
+      color: var(--muted);
+      backdrop-filter: blur(10px);
+    }
+    .pv-note code {
+      padding: 1px 5px;
+      border-radius: 5px;
+      background: var(--surface2);
+      color: var(--accent-deep);
+    }
+  </style>
+</head>
+<body>
+  <div class="pv-wrap">
+    <div class="pv-head">
+      <h1>mincode · 静态预览</h1>
+      <p>全部界面使用同一份 <code>assets/app.css</code>（= 真实 App 样式 + 预览专属样式），内容为 mock 数据，可直接用浏览器打开逐页查看。</p>
+    </div>
+
+    <div class="pv-grid">
+      <a class="pv-card" href="index.html">
+        <div class="pv-icon">⌂</div>
+        <div class="pv-title">首页 · 概览</div>
+        <div class="pv-desc">当前项目英雄卡、文件统计、最近会话、工作流与快捷入口。</div>
+        <div class="pv-tags"><span class="pv-tag">英雄卡</span><span class="pv-tag">统计</span><span class="pv-tag">最近会话</span></div>
+      </a>
+
+      <a class="pv-card" href="chat.html">
+        <div class="pv-icon">◉</div>
+        <div class="pv-title">对话 · Harness 四板块</div>
+        <div class="pv-desc">分析·读取·编辑记录 / 思考结果 / 任务列表（进行中·待完成·已完成）/ 本次修改文件；含执行中与已完成两种状态。</div>
+        <div class="pv-tags"><span class="pv-tag">四板块</span><span class="pv-tag">任务三态</span><span class="pv-tag">diff</span><span class="pv-tag">弹层</span></div>
+      </a>
+
+      <a class="pv-card" href="projects.html">
+        <div class="pv-icon">▤</div>
+        <div class="pv-title">项目列表</div>
+        <div class="pv-desc">新建项目、已有项目卡片、当前项目徽标与空状态。</div>
+        <div class="pv-tags"><span class="pv-tag">列表</span><span class="pv-tag">空状态</span></div>
+      </a>
+
+      <a class="pv-card" href="project-edit.html">
+        <div class="pv-icon">✎</div>
+        <div class="pv-title">编辑项目</div>
+        <div class="pv-desc">项目信息、Rules、本地目录同步统计、FTP 配置与连接测试。</div>
+        <div class="pv-tags"><span class="pv-tag">表单</span><span class="pv-tag">统计</span><span class="pv-tag">FTP</span></div>
+      </a>
+
+      <a class="pv-card" href="ftp.html">
+        <div class="pv-icon">⇪</div>
+        <div class="pv-title">FTP 文件浏览</div>
+        <div class="pv-desc">线下/线上分段切换、目录浏览、批量操作与操作面板。</div>
+        <div class="pv-tags"><span class="pv-tag">分段控件</span><span class="pv-tag">操作面板</span></div>
+      </a>
+
+      <a class="pv-card" href="settings.html">
+        <div class="pv-icon">⚙</div>
+        <div class="pv-title">全局设置</div>
+        <div class="pv-desc">数据目录授权（已授权 + 未授权对照）、API 与 Key、连接测试分步、模型选择、高级参数。</div>
+        <div class="pv-tags"><span class="pv-tag">表单</span><span class="pv-tag">连接测试</span><span class="pv-tag">模型</span></div>
+      </a>
+    </div>
+
+    <div class="pv-note">
+      <strong>说明：</strong>这些页面是纯静态 HTML，无构建、无网络依赖，所有交互（折叠板块、展开思考、查看 diff、切换分段、打开弹层）均由页面内联的小段脚本模拟。
+      样式与真实 App 共用同一套类名与设计变量，若调整 <code>src/styles/app.css</code>，可在 <code>htmls/assets/app.css</code> 同步后立刻看到效果。
+    </div>
+  </div>
+</body>
+</html>

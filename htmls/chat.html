@@ -5,116 +5,410 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="light" />
   <meta name="theme-color" content="#e8f1fc" />
-  <title>Agent 对话</title>
+  <title>mincode · 对话</title>
   <link rel="stylesheet" href="assets/app.css" />
+  <link rel="icon" type="image/png" href="assets/icon.png" />
 </head>
 <body>
   <div class="app-shell">
-    <div class="preview-banner">静态 HTML 预览 · 浅蓝科技主题</div>
+    <div class="preview-banner">静态预览 · Harness 四板块对话</div>
 
     <header class="app-header chat-header">
       <div class="chat-header-row">
-        <button
-          type="button"
-          class="chat-header-btn"
-          id="historyOpen"
-          title="会话记录"
-          aria-label="打开会话记录"
-        >
+        <button type="button" class="chat-header-btn" id="historyOpen" title="会话记录" aria-label="打开会话记录">
           <span aria-hidden="true">☰</span>
         </button>
         <div class="chat-header-titles">
           <h1>改首页标题</h1>
           <div class="sub">官网前端 · deepseek-chat · ai.1k0.com</div>
         </div>
-        <button
-          type="button"
-          class="chat-header-btn"
-          id="newSessionBtn"
-          title="新会话"
-          aria-label="开启新会话"
-        >
+        <button type="button" class="chat-header-btn" id="newSessionBtn" title="新会话" aria-label="开启新会话">
           <span aria-hidden="true">＋</span>
         </button>
       </div>
     </header>
 
     <main class="app-main chat-main">
+      <p class="hint-text sp-b2">会话工具记忆：已读 4 · 已改 3 · 已搜 1</p>
+
+      <!-- ============ 第 1 轮 ============ -->
       <div class="msg-user msg-row">
-        <div class="msg-body">把首页 hero 区域的标题改成「欢迎使用 ABS」</div>
+        <div class="msg-body">把首页 hero 区域的标题改成「欢迎使用 ABS」，并把副标题换成深色模式说明</div>
       </div>
 
-      <div class="tool-log-panel">
-        <div class="tool-log-head">
-          <span class="tool-log-title">读取与工具记录 · 2</span>
+      <!-- Harness 四板块面板 -->
+      <section class="hp-root" aria-label="执行面板">
+        <header class="hp-head">
+          <div class="hp-head-main">
+            <span class="hp-dot is-done" aria-hidden="true"></span>
+            <span class="hp-title">任务全部完成（3 项）</span>
+          </div>
+          <div class="hp-head-meta">
+            1 分 36 秒 · 12 次工具
+            <button type="button" class="hp-link" id="openDetail">详情</button>
+          </div>
+        </header>
+
+        <!-- ① 分析 · 读取 · 编辑记录 -->
+        <div class="hp-block">
+          <button type="button" class="hp-block-head" data-toggle="trace">
+            <span class="hp-block-icon" aria-hidden="true">◆</span>
+            <span class="hp-block-title">分析 · 读取 · 编辑记录</span>
+            <span class="hp-block-badge">读取 4 · 编辑 3</span>
+            <span class="hp-caret open" aria-hidden="true">▾</span>
+          </button>
+          <div class="hp-block-body hp-trace" data-panel="trace">
+            <div class="hp-trace-group">
+              <div class="hp-trace-group-label">分析（2）</div>
+              <div class="hp-trace-row is-analysis">
+                <span class="hp-trace-ico" aria-hidden="true">◆</span>
+                <span class="hp-trace-text">识别为修改类任务：先定位 hero 区域所在文件，再局部替换文案</span>
+              </div>
+              <div class="hp-trace-row is-analysis">
+                <span class="hp-trace-ico" aria-hidden="true">◆</span>
+                <span class="hp-trace-text">任务清单更新：定位 hero 区域（已完成）、替换主标题（进行中）、同步副标题文案（待完成）</span>
+              </div>
+            </div>
+            <div class="hp-trace-group">
+              <div class="hp-trace-group-label">读取（4）</div>
+              <div class="hp-trace-row is-read">
+                <span class="hp-trace-ico" aria-hidden="true">⊙</span>
+                <span class="hp-trace-text">glob src/**/*.html</span>
+              </div>
+              <div class="hp-trace-row is-read">
+                <span class="hp-trace-ico" aria-hidden="true">⊙</span>
+                <span class="hp-trace-text">搜索「hero」<span class="hp-trace-count">×3</span></span>
+              </div>
+              <div class="hp-trace-row is-read">
+                <span class="hp-trace-ico" aria-hidden="true">⊙</span>
+                <span class="hp-trace-text">读文件 src/index.html</span>
+              </div>
+              <div class="hp-trace-row is-read">
+                <span class="hp-trace-ico" aria-hidden="true">⊙</span>
+                <span class="hp-trace-text">读文件 src/styles/app.css</span>
+              </div>
+            </div>
+            <div class="hp-trace-group">
+              <div class="hp-trace-group-label">编辑（3）</div>
+              <div class="hp-trace-row is-edit">
+                <span class="hp-trace-ico" aria-hidden="true">✎</span>
+                <span class="hp-trace-text">替换 src/index.html</span>
+              </div>
+              <div class="hp-trace-row is-edit">
+                <span class="hp-trace-ico" aria-hidden="true">✎</span>
+                <span class="hp-trace-text">写文件 src/styles/app.css</span>
+              </div>
+              <div class="hp-trace-row is-edit is-fail">
+                <span class="hp-trace-ico" aria-hidden="true">✎</span>
+                <span class="hp-trace-text">写文件 src/theme/dark.css</span>
+              </div>
+            </div>
+            <div class="hp-trace-group">
+              <div class="hp-trace-group-label">校验（1）</div>
+              <div class="hp-trace-row is-verify">
+                <span class="hp-trace-ico" aria-hidden="true">✓</span>
+                <span class="hp-trace-text">任务清单全部完成（3 项）</span>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="tool-log-scroll">
-          <div class="tool-line ok">✓ 读取 index.html</div>
-          <div class="tool-line ok">✓ 写入 index.html</div>
+
+        <!-- ② 思考结果 -->
+        <div class="hp-block">
+          <button type="button" class="hp-block-head" data-toggle="think">
+            <span class="hp-block-icon" aria-hidden="true">◌</span>
+            <span class="hp-block-title">思考结果</span>
+            <span class="hp-block-badge">2 轮</span>
+            <span class="hp-caret open" aria-hidden="true">▾</span>
+          </button>
+          <div class="hp-block-body" data-panel="think">
+            <div class="hp-think">
+              <button type="button" class="hp-think-head" data-toggle="t1">
+                <span>第 1 轮思考</span>
+                <span class="hp-think-toggle">展开</span>
+              </button>
+              <p class="hp-think-preview" data-body="t1">hero 区域的标题应该是独立节点，先 glob 找 html 入口，再用 grep 定位 hero…</p>
+              <pre class="hp-think-body" data-body-full="t1" hidden>hero 区域的标题应该是独立节点，先 glob 找 html 入口，再用 grep 定位 hero 关键字，避免盲改样式表。
+
+用户要求把副标题换成「深色模式说明」，说明不是纯文案替换，需要在 app.css 里补一个暗色变量块。</pre>
+            </div>
+            <div class="hp-think">
+              <button type="button" class="hp-think-head" data-toggle="t2">
+                <span>第 2 轮思考</span>
+                <span class="hp-think-toggle">收起</span>
+              </button>
+              <pre class="hp-think-body" data-body-full="t2">index.html 里 hero 的 h1 与 p 分开写，替换后需要检查 .hero-title 的字号是否溢出。dark.css 新建失败（目录不存在），改用 app.css 内的 body[data-theme="dark"] 追加变量，避免多文件。</pre>
+            </div>
+          </div>
         </div>
-        <button type="button" class="tool-log-detail">查看详情</button>
-      </div>
+
+        <!-- ③ 任务列表 -->
+        <div class="hp-block">
+          <button type="button" class="hp-block-head" data-toggle="todos">
+            <span class="hp-block-icon" aria-hidden="true">☑</span>
+            <span class="hp-block-title">任务列表</span>
+            <span class="hp-block-badge">3 已完成</span>
+            <span class="hp-caret open" aria-hidden="true">▾</span>
+          </button>
+          <div class="hp-block-body" data-panel="todos">
+            <div class="hp-todo-group">
+              <div class="hp-todo-group-label is-done">已完成 · 3</div>
+              <div class="hp-todo is-completed">
+                <span class="hp-todo-mark" aria-hidden="true">✓</span>
+                <span class="hp-todo-text">定位 hero 区域所在文件</span>
+                <span class="hp-todo-status">已完成</span>
+              </div>
+              <div class="hp-todo is-completed">
+                <span class="hp-todo-mark" aria-hidden="true">✓</span>
+                <span class="hp-todo-text">替换主标题为「欢迎使用 ABS」</span>
+                <span class="hp-todo-status">已完成</span>
+              </div>
+              <div class="hp-todo is-completed">
+                <span class="hp-todo-mark" aria-hidden="true">✓</span>
+                <span class="hp-todo-text">同步副标题与深色模式说明</span>
+                <span class="hp-todo-status">已完成</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ④ 本次修改的文件 -->
+        <div class="hp-block">
+          <button type="button" class="hp-block-head" data-toggle="files">
+            <span class="hp-block-icon" aria-hidden="true">▤</span>
+            <span class="hp-block-title">本次修改的文件</span>
+            <span class="hp-block-badge">2 个 · <span class="hp-delta">+57</span><span class="hp-delta-minus">-12</span></span>
+            <span class="hp-caret open" aria-hidden="true">▾</span>
+          </button>
+          <div class="hp-block-body" data-panel="files">
+            <div class="hp-file">
+              <span class="hp-file-kind is-replace">改</span>
+              <span class="hp-file-path" title="src/index.html">src/index.html</span>
+              <span class="hp-file-delta"><span class="hp-delta">+5</span><span class="hp-delta-minus">-3</span></span>
+              <button type="button" class="hp-file-diff" data-diff="1">diff</button>
+            </div>
+            <div class="hp-file">
+              <span class="hp-file-kind is-write">写</span>
+              <span class="hp-file-path" title="src/styles/app.css">src/styles/app.css</span>
+              <span class="hp-file-delta"><span class="hp-delta">+52</span><span class="hp-delta-minus">-9</span></span>
+              <button type="button" class="hp-file-diff" data-diff="2">diff</button>
+            </div>
+            <button type="button" class="hp-files-more" id="openFiles">查看全部修改文件与上传（2）</button>
+          </div>
+        </div>
+      </section>
 
       <div class="msg-assistant msg-row">
         <div class="msg-body">
-          <span class="msg-text">已修改首页标题，建议刷新后确认样式。</span>
+          <span class="msg-text">已把 hero 主标题改成「欢迎使用 ABS」，副标题换成深色模式说明，并在 <code>app.css</code> 里补了 <code>body[data-theme="dark"]</code> 变量块。刷新首页即可看到效果。</span>
         </div>
       </div>
 
       <div class="turn-modified-bar">
-        <button type="button" class="btn btn-ghost btn-block">
-          查看 AI 实际修改的文件（1）
-        </button>
+        <button type="button" class="btn btn-ghost btn-block" id="openFiles2">查看 AI 实际修改的文件（2）</button>
       </div>
+
+      <!-- ============ 第 2 轮（执行中） ============ -->
+      <div class="msg-user msg-row">
+        <div class="msg-body">再给首页加一个「最近项目」列表，样式跟卡片一致</div>
+      </div>
+
+      <div class="hp-history">
+        <span class="hp-history-label">本轮记录</span>
+        <div class="hp-history-scroll">
+          <button type="button" class="hp-history-chip">#1 · 14:08 <span class="hp-history-badge">2</span></button>
+          <button type="button" class="hp-history-chip active">#2 · 14:26</button>
+        </div>
+        <button type="button" class="hp-history-back">回最新</button>
+      </div>
+
+      <section class="hp-root is-running" aria-label="执行面板">
+        <header class="hp-head">
+          <div class="hp-head-main">
+            <span class="hp-dot is-live" aria-hidden="true"></span>
+            <span class="hp-title">正在执行：写入最近项目卡片样式</span>
+          </div>
+          <div class="hp-head-meta">
+            24 秒 · 5 次工具
+            <button type="button" class="hp-link" id="openDetail2">详情</button>
+          </div>
+        </header>
+
+        <div class="hp-block">
+          <button type="button" class="hp-block-head" data-toggle="trace2">
+            <span class="hp-block-icon" aria-hidden="true">◆</span>
+            <span class="hp-block-title">分析 · 读取 · 编辑记录</span>
+            <span class="hp-block-badge">读取 2 · 编辑 1</span>
+            <span class="hp-caret open" aria-hidden="true">▾</span>
+          </button>
+          <div class="hp-block-body hp-trace" data-panel="trace2">
+            <div class="hp-trace-group">
+              <div class="hp-trace-group-label">分析（2）</div>
+              <div class="hp-trace-row is-analysis">
+                <span class="hp-trace-ico" aria-hidden="true">◆</span>
+                <span class="hp-trace-text">识别为创建类任务：先拆解清单，再按序落盘</span>
+              </div>
+              <div class="hp-trace-row is-analysis">
+                <span class="hp-trace-ico" aria-hidden="true">◆</span>
+                <span class="hp-trace-text">任务清单更新：新增最近项目卡片样式（已完成）、补列表数据渲染（进行中）、首页串联入口（待完成）</span>
+              </div>
+            </div>
+            <div class="hp-trace-group">
+              <div class="hp-trace-group-label">读取（2）</div>
+              <div class="hp-trace-row is-read">
+                <span class="hp-trace-ico" aria-hidden="true">⊙</span>
+                <span class="hp-trace-text">读文件 src/index.html</span>
+              </div>
+              <div class="hp-trace-row is-read">
+                <span class="hp-trace-ico" aria-hidden="true">⊙</span>
+                <span class="hp-trace-text">搜索「card-clickable」</span>
+              </div>
+            </div>
+            <div class="hp-trace-group">
+              <div class="hp-trace-group-label">编辑（1）</div>
+              <div class="hp-trace-row is-edit">
+                <span class="hp-trace-ico" aria-hidden="true">✎</span>
+                <span class="hp-trace-text">写文件 src/styles/app.css</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hp-block">
+          <button type="button" class="hp-block-head" data-toggle="think2">
+            <span class="hp-block-icon" aria-hidden="true">◌</span>
+            <span class="hp-block-title">思考结果</span>
+            <span class="hp-block-badge">1 轮</span>
+            <span class="hp-caret open" aria-hidden="true">▾</span>
+          </button>
+          <div class="hp-block-body" data-panel="think2">
+            <div class="hp-think">
+              <button type="button" class="hp-think-head" data-toggle="t3">
+                <span>第 1 轮思考</span>
+                <span class="hp-think-toggle">展开</span>
+              </button>
+              <p class="hp-think-preview" data-body="t3">复用已有 .card 的视觉语言，只新增 .recent-list 容器与紧凑行样式，避免重复定义阴影…</p>
+              <pre class="hp-think-body" data-body-full="t3" hidden>复用已有 .card 的视觉语言，只新增 .recent-list 容器与紧凑行样式，避免重复定义阴影。列表项用 .list-row 系列，保持与项目页一致。</pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="hp-block">
+          <button type="button" class="hp-block-head" data-toggle="todos2">
+            <span class="hp-block-icon" aria-hidden="true">☑</span>
+            <span class="hp-block-title">任务列表</span>
+            <span class="hp-block-badge">1 进行中 · 1 待完成 · 1 已完成</span>
+            <span class="hp-caret open" aria-hidden="true">▾</span>
+          </button>
+          <div class="hp-block-body" data-panel="todos2">
+            <div class="hp-todo-group">
+              <div class="hp-todo-group-label is-active">进行中 · 1</div>
+              <div class="hp-todo is-in_progress">
+                <span class="hp-todo-mark" aria-hidden="true">◉</span>
+                <span class="hp-todo-text">补列表数据渲染</span>
+                <span class="hp-todo-status">进行中</span>
+              </div>
+            </div>
+            <div class="hp-todo-group">
+              <div class="hp-todo-group-label">待完成 · 1</div>
+              <div class="hp-todo is-pending">
+                <span class="hp-todo-mark" aria-hidden="true">○</span>
+                <span class="hp-todo-text">首页串联入口</span>
+                <span class="hp-todo-status">待完成</span>
+              </div>
+            </div>
+            <div class="hp-todo-group">
+              <div class="hp-todo-group-label is-done">已完成 · 1</div>
+              <div class="hp-todo is-completed">
+                <span class="hp-todo-mark" aria-hidden="true">✓</span>
+                <span class="hp-todo-text">新增最近项目卡片样式</span>
+                <span class="hp-todo-status">已完成</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hp-block">
+          <button type="button" class="hp-block-head" data-toggle="files2">
+            <span class="hp-block-icon" aria-hidden="true">▤</span>
+            <span class="hp-block-title">本次修改的文件</span>
+            <span class="hp-block-badge">1 个 · <span class="hp-delta">+38</span></span>
+            <span class="hp-caret open" aria-hidden="true">▾</span>
+          </button>
+          <div class="hp-block-body" data-panel="files2">
+            <div class="hp-file">
+              <span class="hp-file-kind is-write">写</span>
+              <span class="hp-file-path" title="src/styles/app.css">src/styles/app.css</span>
+              <span class="hp-file-delta"><span class="hp-delta">+38</span></span>
+              <button type="button" class="hp-file-diff" data-diff="2">diff</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <p class="status-line status-line--live">第 3 轮 · 进行中，用时 24 秒…</p>
+      <button class="btn btn-ghost btn-sm sp-t2 sp-b3" type="button" id="stopBtn">停止生成</button>
     </main>
 
-    <div class="chat-input-dock">
+    <button type="button" class="jump-bottom-btn" hidden>回到底部</button>
+
+    <button type="button" class="chat-fab chat-fab--dock is-open" id="dockToggle" title="收起输入框" aria-label="收起输入框">
+      <span class="chat-fab-icon" aria-hidden="true">✕</span>
+    </button>
+
+    <button type="button" class="chat-fab chat-fab--project" id="chatFab" title="项目与工作区" aria-label="打开项目设置">
+      <span class="chat-fab-icon" aria-hidden="true">▤</span>
+    </button>
+
+    <div class="chat-input-dock" id="inputDock">
       <div class="chat-input-wrap chat-input-wrap--compact">
         <div class="chat-input-bar">
-          <textarea rows="2" placeholder="描述要改什么… 或 /img /video 提示词"></textarea>
-          <button class="btn btn-primary" type="button">发送</button>
+          <button type="button" class="btn btn-ghost btn-at" title="引用文件路径">@</button>
+          <textarea rows="2" placeholder="描述要改什么… @ 引用路径 · /img /video" id="chatInput"></textarea>
+          <button class="btn btn-primary" type="button" id="sendBtn">发送</button>
+        </div>
+        <div class="chat-dock-meta">
+          <label class="check-row chat-dock-plan"><input type="checkbox" /> 计划模式</label>
+          <span class="hint-text sp-0" style="font-size:11px;opacity:.85">对话等接口响应 · /img-async·/video 约 1.5s/2s 轮询</span>
         </div>
       </div>
     </div>
 
-    <button type="button" class="chat-fab" id="chatFab" title="项目与工作区" aria-label="打开项目设置">
-      <span class="chat-fab-icon">▤</span>
-    </button>
-
-    <!-- 全高左侧会话记录侧栏 -->
-    <div
-      class="sheet-overlay history-drawer-overlay"
-      id="historyDrawer"
-      hidden
-      aria-hidden="true"
-    >
+    <!-- ============ 会话记录抽屉 ============ -->
+    <div class="sheet-overlay history-drawer-overlay" id="historyDrawer" hidden aria-hidden="true">
       <aside class="history-drawer" role="dialog" aria-modal="true" aria-label="会话记录">
         <div class="history-drawer-header">
           <div class="history-drawer-titles">
             <strong>会话记录</strong>
             <span class="history-drawer-sub">Documents/abs-chats</span>
           </div>
-          <button type="button" class="btn btn-ghost btn-sm" id="historyClose">关闭</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-close="history">关闭</button>
         </div>
         <div class="history-drawer-toolbar">
-          <button type="button" class="btn btn-primary btn-block" id="historyNewSession">
-            开启新会话
-          </button>
+          <button type="button" class="btn btn-primary btn-block">开启新会话</button>
         </div>
         <div class="history-drawer-body">
           <ul class="session-list session-list--drawer">
             <li class="session-item active">
               <button type="button" class="session-main">
                 <span class="session-title">改首页标题</span>
-                <span class="session-meta">10-26 14:08 · 4 条</span>
-                <span class="session-preview">把首页 hero 区域的标题改成…</span>
+                <span class="session-meta">10-26 14:26 · 4 条</span>
+                <span class="session-preview">把首页 hero 区域的标题改成「欢迎使用 ABS」…</span>
+              </button>
+              <button type="button" class="session-del">删除</button>
+            </li>
+            <li class="session-item">
+              <button type="button" class="session-main">
+                <span class="session-title">最近项目列表</span>
+                <span class="session-meta">10-26 11:02 · 2 条</span>
+                <span class="session-preview">再给首页加一个「最近项目」列表</span>
               </button>
               <button type="button" class="session-del">删除</button>
             </li>
             <li class="session-item">
               <button type="button" class="session-main">
                 <span class="session-title">会话 2</span>
-                <span class="session-meta">10-25 21:12 · 2 条</span>
+                <span class="session-meta">10-25 21:12 · 6 条</span>
                 <span class="session-preview">帮我检查 FTP 上传脚本</span>
               </button>
               <button type="button" class="session-del">删除</button>
@@ -124,55 +418,127 @@
       </aside>
     </div>
 
+    <!-- ============ 项目与工作区 ============ -->
     <div class="sheet-overlay" id="projectSheet" hidden aria-hidden="true">
-      <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="projectSheetTitle">
+      <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="项目与工作区">
         <div class="sheet-header">
-          <strong id="projectSheetTitle">项目与工作区</strong>
-          <button type="button" class="btn btn-ghost btn-sm" id="projectSheetClose" aria-label="关闭项目设置">关闭</button>
+          <strong>项目与工作区</strong>
+          <button type="button" class="btn btn-ghost btn-sm" data-close="sheet">关闭</button>
         </div>
         <div class="sheet-body">
+          <label class="check-row sp-b3">
+            <input type="checkbox" /> 计划模式（先出步骤，确认后再改文件）
+          </label>
           <label class="field-label">当前项目</label>
           <select class="project-select">
             <option selected>官网前端</option>
             <option>小程序后端</option>
           </select>
-          <p class="ftp-context-hint" style="margin-top:10px">
+
+          <p class="ftp-context-hint sp-t3">
             📁 项目根：<strong>Documents/www</strong>
-            <span class="scope-tag">沙盒 /</span>
+            <span class="scope-tag">实时写入手机</span>
           </p>
-          <div class="field" style="margin-top:12px;margin-bottom:0">
+
+          <div class="field sp-t3">
             <label>AI 工作区（仅允许改此目录下文件）</label>
             <div class="work-root-row">
               <input type="text" value="src" placeholder="留空 = 整个项目根" />
               <button class="btn btn-ghost btn-sm" type="button">应用</button>
             </div>
           </div>
+
           <div class="subdir-chips">
             <button type="button" class="chip">项目根 /</button>
             <button type="button" class="chip active">src/</button>
             <button type="button" class="chip">api/</button>
           </div>
+
           <p class="scope-hint">当前工作区：src/</p>
+          <p class="scope-hint memory-hint">会话工具记忆：已读 4 · 已改 3 · 已搜 1 <button type="button" class="btn-link" id="clearMemory">清空记忆</button></p>
+
           <div class="sheet-section">
             <label class="field-label">会话操作</label>
             <button class="btn btn-primary btn-block" type="button">开启新会话</button>
-            <button
-              class="btn btn-ghost btn-block"
-              type="button"
-              style="margin-top:8px"
-              id="openHistoryFromSheet"
-            >
-              查看会话记录
-            </button>
+            <button class="btn btn-ghost btn-block sp-t2" type="button" data-open-history>查看会话记录</button>
             <div class="chat-actions chat-actions--sheet">
-              <button class="btn btn-ghost" type="button">写回手机</button>
+              <button class="btn btn-ghost" type="button">补写回手机</button>
               <button class="btn btn-ghost" type="button">FTP 上传</button>
+              <button class="btn btn-ghost btn-compact" type="button">压缩上下文</button>
               <button class="btn btn-ghost btn-compact" type="button">清空当前会话</button>
             </div>
             <p class="slash-hint slash-hint--sheet">
               斜杠命令：<code>/img</code> <code>/img-async</code> <code>/video</code> <code>/video-quote</code>
             </p>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 工具记录详情 ============ -->
+    <div class="sheet-overlay" id="toolSheet" hidden aria-hidden="true">
+      <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="工具记录详情">
+        <div class="sheet-header">
+          <strong>读取与工具记录</strong>
+          <button type="button" class="btn btn-ghost btn-sm" data-close="tool">关闭</button>
+        </div>
+        <div class="sheet-body">
+          <div class="tool-detail-line ok"><div class="tool-detail-name">✓ glob</div><div class="tool-detail-label">glob src/**/*.html</div></div>
+          <div class="tool-detail-line ok"><div class="tool-detail-name">✓ grep</div><div class="tool-detail-label">搜索「hero」</div><div class="tool-detail-path">src/index.html</div></div>
+          <div class="tool-detail-line ok"><div class="tool-detail-name">✓ read_file</div><div class="tool-detail-label">读文件 src/index.html</div><div class="tool-detail-path">src/index.html</div></div>
+          <div class="tool-detail-line ok"><div class="tool-detail-name">✓ read_file</div><div class="tool-detail-label">读文件 src/styles/app.css</div><div class="tool-detail-path">src/styles/app.css</div></div>
+          <div class="tool-detail-line ok"><div class="tool-detail-name">✓ search_replace</div><div class="tool-detail-label">替换 src/index.html</div><div class="tool-detail-path">src/index.html</div></div>
+          <div class="tool-detail-line ok"><div class="tool-detail-name">✓ write_file</div><div class="tool-detail-label">写文件 src/styles/app.css</div><div class="tool-detail-path">src/styles/app.css</div></div>
+          <div class="tool-detail-line fail"><div class="tool-detail-name">✕ write_file</div><div class="tool-detail-label">写文件 src/theme/dark.css</div><div class="tool-detail-path">src/theme/dark.css</div></div>
+          <div class="tool-detail-line ok"><div class="tool-detail-name">✓ update_todos</div><div class="tool-detail-label">更新任务清单 · 3 项</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 修改文件 + diff ============ -->
+    <div class="sheet-overlay" id="fileSheet" hidden aria-hidden="true">
+      <div class="sheet-panel" role="dialog" aria-modal="true" aria-label="AI 修改的文件">
+        <div class="sheet-header">
+          <strong>AI 修改的文件</strong>
+          <button type="button" class="btn btn-ghost btn-sm" data-close="file">关闭</button>
+        </div>
+        <div class="sheet-body">
+          <div class="modified-toolbar">
+            <label class="modified-check-all"><input type="checkbox" checked /> 全选 / 取消全选</label>
+            <span class="hint-text sp-0">已选 2/2</span>
+          </div>
+          <ul class="modified-list">
+            <li class="modified-item">
+              <div class="modified-item-row">
+                <label><input type="checkbox" checked /><span class="modified-path">src/index.html</span></label>
+                <button type="button" class="btn btn-ghost btn-sm" data-toggle-diff="d1">替换</button>
+              </div>
+              <pre class="diff-preview" data-diff-body="d1" hidden>--- a/src/index.html
++++ b/src/index.html
+@@
+-  &lt;h1 class="hero-title"&gt;让想法即刻上线&lt;/h1&gt;
+-  &lt;p class="hero-sub"&gt;多端一致的前端工程化方案&lt;/p&gt;
++  &lt;h1 class="hero-title"&gt;欢迎使用 ABS&lt;/h1&gt;
++  &lt;p class="hero-sub"&gt;开启深色模式，夜间阅读更轻松&lt;/p&gt;</pre>
+            </li>
+            <li class="modified-item">
+              <div class="modified-item-row">
+                <label><input type="checkbox" checked /><span class="modified-path">src/styles/app.css</span></label>
+                <button type="button" class="btn btn-ghost btn-sm" data-toggle-diff="d2">写入</button>
+              </div>
+              <pre class="diff-preview" data-diff-body="d2" hidden>--- /dev/null
++++ b/src/styles/app.css
+@@
++body[data-theme="dark"] {
++  --bg: #0b1626;
++  --surface: #12202f;
++  --text: #e8f1fc;
++  --muted: #7f9cbb;
++  --border: rgba(120, 170, 255, 0.16);
++}</pre>
+            </li>
+          </ul>
+          <button type="button" class="btn btn-primary btn-block sp-t4">一键上传 FTP</button>
         </div>
       </div>
     </div>
@@ -185,69 +551,128 @@
       <a href="settings.html"><span class="tab-icon">⚙</span><span>设置</span></a>
     </nav>
   </div>
+
+  <div class="preview-nav" id="previewNav">
+    <div class="preview-nav-menu">
+      <a href="index.html">首页</a>
+      <a href="chat.html" class="active">对话</a>
+      <a href="projects.html">项目</a>
+      <a href="project-edit.html">编辑项目</a>
+      <a href="ftp.html">FTP</a>
+      <a href="settings.html">设置</a>
+    </div>
+    <button type="button" class="preview-nav-toggle" id="previewNavToggle" title="切换页面">⇅</button>
+  </div>
+
   <script>
     (function () {
-      var sheet = document.getElementById('projectSheet');
-      var fab = document.getElementById('chatFab');
-      var closeBtn = document.getElementById('projectSheetClose');
-      var history = document.getElementById('historyDrawer');
-      var historyOpen = document.getElementById('historyOpen');
-      var historyClose = document.getElementById('historyClose');
-      var openFromSheet = document.getElementById('openHistoryFromSheet');
-      var input = document.querySelector('.chat-input-bar textarea');
-      if (!sheet || !fab || !closeBtn || !history) return;
+      function $(sel) { return document.querySelector(sel); }
+      function $all(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
 
-      function focusInput() {
-        if (!input) return;
-        requestAnimationFrame(function () {
-          input.focus({ preventScroll: true });
+      /* 板块折叠 */
+      $all('[data-toggle]').forEach(function (head) {
+        head.addEventListener('click', function () {
+          var key = head.getAttribute('data-toggle');
+          var body = document.querySelector('[data-panel="' + key + '"]');
+          var caret = head.querySelector('.hp-caret');
+          if (!body) return;
+          var opened = body.style.display !== 'none';
+          body.style.display = opened ? 'none' : '';
+          if (caret) caret.classList.toggle('open', !opened);
+        });
+      });
+
+      /* 思考展开 / 收起 */
+      $all('[data-body-full]').forEach(function (full) {
+        var key = full.getAttribute('data-body-full');
+        var head = document.querySelector('[data-toggle="' + key + '"]');
+        var prev = document.querySelector('[data-body="' + key + '"]');
+        if (!head) return;
+        head.addEventListener('click', function () {
+          var opened = !full.hidden;
+          full.hidden = opened;
+          if (prev) prev.hidden = !opened;
+          var label = head.querySelector('.hp-think-toggle');
+          if (label) label.textContent = opened ? '展开' : '收起';
+        });
+      });
+
+      /* diff 展开 */
+      $all('[data-toggle-diff]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var body = document.querySelector('[data-diff-body="' + btn.getAttribute('data-toggle-diff') + '"]');
+          if (body) body.hidden = !body.hidden;
+        });
+      });
+
+      /* 弹层 */
+      function openSheet(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.hidden = false;
+        el.setAttribute('aria-hidden', 'false');
+      }
+      function closeSheet(id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.hidden = true;
+        el.setAttribute('aria-hidden', 'true');
+      }
+
+      var triggers = {
+        historyOpen: 'historyDrawer',
+        chatFab: 'projectSheet',
+        openDetail: 'toolSheet',
+        openDetail2: 'toolSheet',
+        openFiles: 'fileSheet',
+        openFiles2: 'fileSheet'
+      };
+      Object.keys(triggers).forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('click', function () { openSheet(triggers[id]); });
+      });
+
+      $all('[data-close]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var map = { history: 'historyDrawer', sheet: 'projectSheet', tool: 'toolSheet', file: 'fileSheet' };
+          closeSheet(map[btn.getAttribute('data-close')]);
+        });
+      });
+
+      $all('.sheet-overlay').forEach(function (overlay) {
+        overlay.addEventListener('click', function (e) {
+          if (e.target === overlay) closeSheet(overlay.id);
+        });
+      });
+
+      $all('[data-diff]').forEach(function (btn) {
+        btn.addEventListener('click', function () { openSheet('fileSheet'); });
+      });
+
+      var openHistory = document.querySelector('[data-open-history]');
+      if (openHistory) {
+        openHistory.addEventListener('click', function () {
+          closeSheet('projectSheet');
+          openSheet('historyDrawer');
         });
       }
 
-      function openSheet() {
-        sheet.hidden = false;
-        sheet.setAttribute('aria-hidden', 'false');
-      }
-      function closeSheet() {
-        sheet.hidden = true;
-        sheet.setAttribute('aria-hidden', 'true');
-        focusInput();
-      }
-      function openHistory() {
-        history.hidden = false;
-        history.setAttribute('aria-hidden', 'false');
-      }
-      function closeHistory() {
-        history.hidden = true;
-        history.setAttribute('aria-hidden', 'true');
-        focusInput();
-      }
-
-      fab.addEventListener('click', openSheet);
-      closeBtn.addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        closeSheet();
-      });
-      sheet.addEventListener('click', function (e) {
-        if (e.target === sheet) closeSheet();
-      });
-      if (historyOpen) historyOpen.addEventListener('click', openHistory);
-      if (historyClose) historyClose.addEventListener('click', closeHistory);
-      history.addEventListener('click', function (e) {
-        if (e.target === history) closeHistory();
-      });
-      if (openFromSheet) {
-        openFromSheet.addEventListener('click', function () {
-          closeSheet();
-          openHistory();
-        });
-      }
       document.addEventListener('keydown', function (e) {
         if (e.key !== 'Escape') return;
-        if (!history.hidden) closeHistory();
-        else if (!sheet.hidden) closeSheet();
+        ['fileSheet', 'toolSheet', 'projectSheet', 'historyDrawer'].forEach(function (id) {
+          closeSheet(id);
+        });
       });
+
+      /* 预览导航 */
+      var nav = document.getElementById('previewNav');
+      var navToggle = document.getElementById('previewNavToggle');
+      if (nav && navToggle) {
+        navToggle.addEventListener('click', function () { nav.classList.toggle('is-open'); });
+        document.addEventListener('click', function (e) {
+          if (!nav.contains(e.target)) nav.classList.remove('is-open');
+        });
+      }
     })();
   </script>
 </body>

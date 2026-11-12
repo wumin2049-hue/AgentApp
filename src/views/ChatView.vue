@@ -13,6 +13,7 @@ import { scopeLabel } from '@/services/projectScope';
 import { compressChatHistory } from '@/services/sessionSummary';
 import { useFocusTrap } from '@/composables/useFocusTrap';
 import ChatMessage from '@/components/ChatMessage.vue';
+import HarnessPanels from '@/components/HarnessPanels.vue';
 import { nextTick } from 'vue';
 import { Preferences } from '@capacitor/preferences';
 
@@ -122,14 +123,6 @@ const allModifiedSelected = computed(
     turnModifiedList.value.every((f) => selectedModified.value.includes(f)),
 );
 
-const todoStats = computed(() => {
-  const list = chat.turnTodos;
-  const active = list.filter((t) => t.status === 'in_progress').length;
-  const pending = list.filter((t) => t.status === 'pending').length;
-  const done = list.filter((t) => t.status === 'completed').length;
-  return { active, pending, done, total: list.length };
-});
-
 const elapsedLabel = computed(() => {
   const s = elapsedSec.value;
   if (s < 60) return `${s} 秒`;
@@ -152,20 +145,6 @@ function stopElapsedTimer() {
     clearInterval(elapsedTimer);
     elapsedTimer = null;
   }
-}
-
-function todoStatusLabel(status: string): string {
-  if (status === 'in_progress') return '进行中';
-  if (status === 'completed') return '已完成';
-  if (status === 'cancelled') return '已取消';
-  return '待处理';
-}
-
-function timelineDelta(item: { added?: number; removed?: number }): string {
-  const a = item.added ?? 0;
-  const r = item.removed ?? 0;
-  if (!a && !r) return '';
-  return `+${a} -${r}`;
 }
 
 const project = computed(() =>
@@ -225,6 +204,44 @@ const harnessMemoryHint = computed(() => {
   if (d.grep_keys.length) parts.push(`已搜 ${d.grep_keys.length}`);
   return parts.length ? `会话工具记忆：${parts.join(' · ')}` : '';
 });
+
+/** 当前展示的面板：默认最新轮，可切到历史轮回看 */
+const activePanels = computed(() => {
+  if (chat.viewingTurnId) {
+    const hit = chat.turnPanelsHistory.find((p) => p.turnId === chat.viewingTurnId);
+    if (hit) return hit;
+  }
+  return chat.turnPanels;
+});
+
+const viewingHistory = computed(
+  () => Boolean(chat.viewingTurnId) && chat.viewingTurnId !== chat.turnPanels?.turnId,
+);
+
+const hasAnyPanel = computed(
+  () =>
+    Boolean(activePanels.value?.analysis.length) ||
+    Boolean(activePanels.value?.thinking.length) ||
+    Boolean(activePanels.value?.todos.length) ||
+    Boolean(activePanels.value?.files.length),
+);
+
+function hasDiffFor(path: string): boolean {
+  return Boolean(chat.diffForPath(path));
+}
+
+function openDiffFor(path: string) {
+  expandedDiffPath.value = path;
+  openModifiedSheet();
+}
+
+function formatTurnTime(ms: number): string {
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return '';
+  const hh = `${d.getHours()}`.padStart(2, '0');
+  const mi = `${d.getMinutes()}`.padStart(2, '0');
+  return `${hh}:${mi}`;
+}
 
 function formatSessionTime(iso?: string): string {
   if (!iso) return '';
@@ -806,6 +823,10 @@ async function send() {
           chat.setTurnTodos(e.todos);
           scheduleScrollToBottom();
         }
+        if (e.type === 'panels') {
+          chat.setTurnPanels(e.panels);
+          scheduleScrollToBottom();
+        }
         if (e.type === 'round') {
           statusMsg.value = e.forceWrite ? `第 ${e.round} 轮 · 强制落盘…` : `第 ${e.round} 轮…`;
           chat.pushTimeline({
@@ -837,6 +858,12 @@ async function send() {
         : String(e);
     chat.setError(msg);
     chat.fillAssistantError(assistantId, msg);
+    // 中断也要把当前面板归档，避免板块记录丢失
+    if (chat.turnPanels) {
+      chat.turnPanels.error = msg;
+      chat.turnPanels.endedAt = Date.now();
+      chat.archiveTurnPanels(chat.turnPanels);
+    }
     await chat.persist();
   } finally {
     if (abortCtl.value === ctl) abortCtl.value = null;
@@ -1114,107 +1141,47 @@ function onGlobalKeydown(e: KeyboardEvent) {
     </p>
 
     <template v-for="m in chat.messages" :key="m.id">
-      <!-- Harness 时间线：思考 / 写入 / 任务（助手气泡上方） -->
+      <!-- 历史轮次切换：回看之前某次执行的面板记录 -->
       <div
-        v-if="m.id === lastAssistantId && (chat.turnTimeline.length || activeToolLabel || chat.turnTodos.length)"
-        class="harness-panel"
+        v-if="m.id === lastAssistantId && chat.turnPanelsHistory.length > 1 && !chat.streaming"
+        class="hp-history"
       >
-        <div class="harness-panel-head">
-          <span class="harness-panel-title">
-            <template v-if="busy || chat.streaming">准备写入文件</template>
-            <template v-else>本轮轨迹</template>
-            · {{ chat.toolLog.length }} 次工具
-          </span>
-          <button type="button" class="harness-panel-link" @click="openToolDetail">详情</button>
+        <span class="hp-history-label">本轮记录</span>
+        <div class="hp-history-scroll">
+          <button
+            v-for="(p, i) in chat.turnPanelsHistory"
+            :key="p.turnId"
+            type="button"
+            class="hp-history-chip"
+            :class="{ active: p.turnId === (activePanels?.turnId || '') }"
+            :title="p.prompt || `第 ${i + 1} 次执行`"
+            @click="chat.viewTurnPanels(p.turnId === chat.turnPanels?.turnId ? '' : p.turnId)"
+          >
+            #{{ i + 1 }} · {{ formatTurnTime(p.startedAt) }}
+            <span v-if="p.files.length" class="hp-history-badge">{{ p.files.length }}</span>
+          </button>
         </div>
-
-        <div class="harness-timeline">
-          <template v-for="item in chat.turnTimeline" :key="item.id">
-            <details
-              v-if="item.kind === 'thinking' && item.text"
-              class="harness-think"
-            >
-              <summary>思考</summary>
-              <pre>{{ item.text }}</pre>
-            </details>
-
-            <div
-              v-else-if="item.kind === 'tool_start' && item.active"
-              class="harness-row harness-row--active"
-            >
-              <span class="harness-ico" aria-hidden="true">✎</span>
-              <span class="harness-row-body">
-                {{ item.path ? `写入 ${item.path}` : item.text }}
-                <span class="harness-muted"> · 正在准备内容…</span>
-              </span>
-            </div>
-
-            <div
-              v-else-if="item.kind === 'tool' && (item.name === 'write_file' || item.name === 'search_replace' || item.name === 'delete_file')"
-              class="harness-row"
-              :class="item.ok === false ? 'is-fail' : 'is-write'"
-            >
-              <span class="harness-ico" aria-hidden="true">✎</span>
-              <span class="harness-row-body">
-                <span class="harness-path">{{ item.path || item.text }}</span>
-                <span v-if="timelineDelta(item)" class="harness-delta">{{ timelineDelta(item) }}</span>
-              </span>
-            </div>
-
-            <div
-              v-else-if="item.kind === 'tool' && item.name === 'ask_user'"
-              class="harness-row"
-            >
-              <span class="harness-ico" aria-hidden="true">?</span>
-              <span class="harness-row-body">{{ item.text }}</span>
-            </div>
-
-            <div
-              v-else-if="item.kind === 'tool'"
-              class="harness-row harness-row--read"
-              :class="item.ok === false ? 'is-fail' : ''"
-            >
-              <span class="harness-ico" aria-hidden="true">⚙</span>
-              <span class="harness-row-body">{{ item.text }}</span>
-            </div>
-
-            <div v-else-if="item.kind === 'round'" class="harness-round">
-              {{ item.text }}
-            </div>
-          </template>
-
-          <div v-if="activeToolLabel && !chat.turnTimeline.some((x) => x.active)" class="harness-row harness-row--active">
-            <span class="harness-ico" aria-hidden="true">…</span>
-            <span class="harness-row-body">{{ activeToolLabel }}</span>
-          </div>
-        </div>
-
-        <!-- 底部任务清单 -->
-        <div v-if="chat.turnTodos.length" class="harness-todos">
-          <div class="harness-todos-head">
-            任务
-            <template v-if="todoStats.active"> {{ todoStats.active }} 进行中</template>
-            <template v-if="todoStats.pending"> · {{ todoStats.pending }} 待处理</template>
-            <template v-if="todoStats.done"> · {{ todoStats.done }} 已完成</template>
-          </div>
-          <ul class="harness-todos-list">
-            <li
-              v-for="t in chat.turnTodos"
-              :key="t.id"
-              class="harness-todo"
-              :class="'is-' + t.status"
-            >
-              <span class="harness-todo-mark" aria-hidden="true">
-                <template v-if="t.status === 'completed'">✓</template>
-                <template v-else-if="t.status === 'in_progress'">◉</template>
-                <template v-else>○</template>
-              </span>
-              <span class="harness-todo-text">{{ t.content }}</span>
-              <span class="harness-todo-status">{{ todoStatusLabel(t.status) }}</span>
-            </li>
-          </ul>
-        </div>
+        <button
+          v-if="viewingHistory"
+          type="button"
+          class="hp-history-back"
+          @click="chat.viewTurnPanels('')"
+        >
+          回最新
+        </button>
       </div>
+
+      <!-- Harness 面板：分析·读取·编辑记录 / 思考结果 / 任务列表 / 本次修改文件 -->
+      <HarnessPanels
+        v-if="m.id === lastAssistantId && hasAnyPanel"
+        :panels="activePanels!"
+        :running="busy || chat.streaming"
+        :elapsed-sec="elapsedSec"
+        :has-diff="hasDiffFor"
+        @open-files="openModifiedSheet"
+        @open-diff="openDiffFor"
+        @open-detail="openToolDetail"
+      />
 
       <ChatMessage
         :message="m"

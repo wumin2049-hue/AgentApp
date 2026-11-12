@@ -51,6 +51,15 @@ import {
   looksLikeClarifyingQuestion,
   type AskUserHandler,
 } from './askUser';
+import {
+  emptyTurnPanels,
+  finishTurnPanels,
+  pushAnalysis,
+  recordThinking,
+  recordTodos,
+  recordTool,
+} from './turnPanels';
+import type { HarnessTurnPanels } from '@/types';
 
 function toolLabel(name: string, args: Record<string, unknown>): string {
   const path = String(args.path || '');
@@ -385,7 +394,8 @@ export type AgentLoopEvent =
   | { type: 'tool_start'; name: string; label: string; path?: string }
   | { type: 'tool'; entry: ToolLogEntry }
   | { type: 'todos'; todos: TodoItem[] }
-  | { type: 'delta'; content: string; reasoning?: string }
+  | { type: 'delta'; content: string; reasoning?: string; round?: number }
+  | { type: 'panels'; panels: HarnessTurnPanels }
   | { type: 'done'; result: AgentTurnResult }
   | { type: 'error'; message: string };
 
@@ -475,6 +485,26 @@ export async function runAgentLoop(
   let turnTodos: TodoItem[] = [];
   const editIntent = wantsEdit(userText);
   const createIntent = wantsCreate(userText);
+
+  /** Harness 三板块：分析 / 思考 / 任务 / 修改文件 */
+  const panels: HarnessTurnPanels = emptyTurnPanels(userText);
+  if (workRoot) {
+    pushAnalysis(panels, {
+      phase: 'analysis',
+      text: `工作区限定为 ${workRoot}/`,
+      ok: true,
+    });
+  }
+  pushAnalysis(panels, {
+    phase: 'analysis',
+    text: createIntent
+      ? '识别为创建/搭建类任务：先拆解任务清单，再按序落盘'
+      : editIntent
+        ? '识别为修改类任务：先定位相关文件，再局部替换'
+        : '理解用户意图，判断是否需要读写文件',
+    ok: true,
+  });
+  onEvent({ type: 'panels', panels: { ...panels } });
 
   for (let round = 0; round < limit; round++) {
     throwIfAborted(signal);
@@ -586,7 +616,11 @@ export async function runAgentLoop(
         (content, reasoning) => {
           finalContent = content;
           finalReasoning = reasoning;
-          onEvent({ type: 'delta', content, reasoning });
+          if (reasoning) {
+            recordThinking(panels, round, reasoning);
+            onEvent({ type: 'panels', panels: { ...panels } });
+          }
+          onEvent({ type: 'delta', content, reasoning, round: round + 1 });
         },
       );
 
@@ -695,6 +729,7 @@ export async function runAgentLoop(
                   args: { path: g.rel, content: f.content },
                 });
                 onEvent({ type: 'tool', entry });
+                recordTool(panels, entry, diff);
                 fileDiffs.push(diff);
               } catch (err) {
                 const entry: ToolLogEntry = {
@@ -705,6 +740,7 @@ export async function runAgentLoop(
                 };
                 toolLog.push(entry);
                 onEvent({ type: 'tool', entry });
+                recordTool(panels, entry);
                 finalContent =
                   (finalContent ? finalContent + '\n\n' : '') +
                   `写入失败 ${g.rel}：${err instanceof Error ? err.message : String(err)}`;
@@ -822,7 +858,19 @@ export async function runAgentLoop(
           return { ok: false, output: applied.output };
         }
         turnTodos = applied.todos;
+        recordTodos(panels, turnTodos);
+        pushAnalysis(panels, {
+          phase: 'analysis',
+          text: `任务清单更新：${turnTodos
+            .map((t) => `${t.content}（${
+              t.status === 'completed' ? '已完成' : t.status === 'in_progress' ? '进行中' : '待完成'
+            }）`)
+            .slice(0, 6)
+            .join('、')}`,
+          ok: true,
+        });
         onEvent({ type: 'todos', todos: turnTodos.map((t) => ({ ...t })) });
+        onEvent({ type: 'panels', panels: { ...panels } });
         const summary = turnTodos
           .map((t) => `${t.status}:${t.content}`)
           .slice(0, 12)
@@ -904,6 +952,7 @@ export async function runAgentLoop(
       toolLog.push(entry);
       toolLogWithArgs.push({ ...entry, args: job.args });
       onEvent({ type: 'tool', entry });
+      recordTool(panels, entry, res.diff);
 
       if (res.ok && HARNESS_WRITE_TOOLS.has(job.name)) {
         writeHits++;
@@ -930,6 +979,8 @@ export async function runAgentLoop(
       readStreak++;
       readsSinceWrite++;
     }
+
+    onEvent({ type: 'panels', panels: { ...panels } });
   }
 
   if (todosOpen(turnTodos) && finalContent) {
@@ -937,6 +988,9 @@ export async function runAgentLoop(
       finalContent +
       `\n\n---\n\n（提示：任务清单仍有未完成项：${todosProgressHint(turnTodos)}。${nextTodoHint(turnTodos)}可再次发送「继续」让 Agent 按序接着做。）`;
   }
+
+  finishTurnPanels(panels);
+  onEvent({ type: 'panels', panels: { ...panels } });
 
   const updatedDigest = harnessDigestFromToolLog(harnessDigest, toolLogWithArgs);
   const result: AgentTurnResult = {
@@ -946,6 +1000,7 @@ export async function runAgentLoop(
     modifiedFiles: [...modified],
     fileDiffs: fileDiffs.length ? fileDiffs : undefined,
     harnessDigest: updatedDigest,
+    panels: { ...panels },
   };
   onEvent({ type: 'done', result });
   return result;

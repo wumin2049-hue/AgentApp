@@ -30,6 +30,23 @@
 
 对话页时间线展示思考 / 写入(+N -M) / 工具；`update_todos` 驱动底部任务面板；长任务显示已用时。
 
+### 1.0.36 · Harness 式四板块对话面板
+
+把单条时间线拆成**并列四板块**，每块各自随 AI 接口结果不断追加记录与状态：
+
+| 板块 | 内容 | 数据来源 |
+| --- | --- | --- |
+| ① 分析 · 读取 · 编辑记录 | 按 `分析 / 读取 / 编辑 / 校验` 分组累积，同类连续条目合并计数 | 工具调用 + 意图识别 |
+| ② 思考结果 | 每轮 reasoning 分条，可展开/收起 | 流式 `reasoning_content` |
+| ③ 任务列表 | **进行中 / 待完成 / 已完成** 三段分组 | `update_todos` |
+| ④ 本次修改的文件 | 路径 + 写入/替换/删除 标记 + 行增删 | `write_file` / `search_replace` / `delete_file` |
+
+- 新增 `src/services/turnPanels.ts`：面板快照聚合器（`recordTool` / `recordThinking` / `recordTodos` / `finishTurnPanels`）
+- 新增 `src/components/HarnessPanels.vue`：四板块 UI（各自折叠）
+- `agentLoop` 新增 `panels` 事件，`AgentTurnResult.panels` 带回完整快照
+- 一次对话结束即归档到 `chat.turnPanelsHistory`，顶部「本轮记录 #N」可回看历史执行
+- 任务必须逐项按序完成：清单未完成时结束会在「分析记录」落一条 `ok=false` 的未完成提示
+
 ---
 
 ## 1. 对齐原则
@@ -62,6 +79,7 @@
 | 会话压缩 | `src/services/sessionSummary.ts` · ChatView |
 | 远程递归 | `src/plugins/ftp/index.ts` · FtpBrowserView · `FtpPlugin.java` |
 | 删项目清会话 | `chat.purgeProjectSessions` · ProjectEditView |
+| 四板块面板 | `src/services/turnPanels.ts` · `src/components/HarnessPanels.vue` · `agentLoop` 的 `panels` 事件 |
 | Rules / 计划 / diff | 见既有索引 |
 
 ---
